@@ -4,6 +4,7 @@ import argparse
 import html
 import json
 import sqlite3
+from collections import defaultdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +34,15 @@ def esc(value: Any) -> str:
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return {key: row[key] for key in row.keys()}
+
+
+def safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class WeatherDashboard:
@@ -85,6 +95,72 @@ class WeatherDashboard:
                 """,
                 (event_id,),
             ).fetchall()
+
+    def daily_series(self, event_id: str) -> list[dict[str, Any]]:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    substr(w.time, 1, 10) AS day,
+                    l.name AS location_name,
+                    w.temperature_2m,
+                    w.wind_speed_10m,
+                    w.wind_gusts_10m,
+                    w.shortwave_radiation,
+                    w.precipitation,
+                    w.snowfall,
+                    w.snow_depth,
+                    w.relative_humidity_2m
+                FROM weather_timeseries w
+                JOIN locations l ON l.location_id = w.location_id
+                WHERE w.event_id = ?
+                ORDER BY l.location_id, w.time
+                """,
+                (event_id,),
+            ).fetchall()
+
+        grouped: dict[tuple[str, str], dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+        for row in rows:
+            key = (row["location_name"], row["day"])
+            for field in (
+                "temperature_2m",
+                "wind_speed_10m",
+                "wind_gusts_10m",
+                "shortwave_radiation",
+                "precipitation",
+                "snowfall",
+                "snow_depth",
+                "relative_humidity_2m",
+            ):
+                value = safe_float(row[field])
+                if value is not None:
+                    grouped[key][field].append(value)
+
+        series = []
+        for (location_name, day), values in grouped.items():
+            item: dict[str, Any] = {"location_name": location_name, "day": day}
+            if values["temperature_2m"]:
+                item["temperature_max"] = max(values["temperature_2m"])
+                item["temperature_min"] = min(values["temperature_2m"])
+                item["temperature_mean"] = sum(values["temperature_2m"]) / len(values["temperature_2m"])
+            if values["wind_speed_10m"]:
+                item["wind_speed_mean"] = sum(values["wind_speed_10m"]) / len(values["wind_speed_10m"])
+                item["stagnant_hours"] = sum(1 for value in values["wind_speed_10m"] if value <= 2)
+            if values["wind_gusts_10m"]:
+                item["wind_gust_max"] = max(values["wind_gusts_10m"])
+            if values["shortwave_radiation"]:
+                daylight = [value for value in values["shortwave_radiation"] if value > 0]
+                item["shortwave_mean"] = sum(daylight) / len(daylight) if daylight else 0
+            if values["precipitation"]:
+                item["precipitation_sum"] = sum(values["precipitation"])
+            if values["snowfall"]:
+                item["snowfall_sum"] = sum(values["snowfall"])
+            if values["snow_depth"]:
+                item["snow_depth_max"] = max(values["snow_depth"])
+            if values["relative_humidity_2m"]:
+                item["humidity_min"] = min(values["relative_humidity_2m"])
+            series.append(item)
+        return sorted(series, key=lambda item: (item["location_name"], item["day"]))
 
     def render(
         self,
@@ -251,6 +327,26 @@ class WeatherDashboard:
     th, td {{ border-bottom: 1px solid var(--border); padding: 8px 7px; text-align: left; vertical-align: top; }}
     th {{ background: #f9fafb; color: #475467; font-weight: 650; }}
     .scroll {{ overflow: auto; max-height: 430px; border: 1px solid var(--border); border-radius: 8px; }}
+    .chart-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }}
+    .chart-card {{
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+      min-width: 0;
+    }}
+    .chart-title {{ margin: 0 0 8px; font-size: 13px; font-weight: 650; }}
+    .chart-card svg {{ display: block; width: 100%; height: 220px; overflow: visible; }}
+    .chart-axis {{ stroke: #98a2b3; stroke-width: 1; }}
+    .chart-grid-line {{ stroke: #e4e7ec; stroke-width: 1; }}
+    .chart-label {{ fill: #667085; font-size: 10px; }}
+    .chart-legend {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }}
+    .legend-item {{ display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }}
+    .legend-swatch {{ width: 10px; height: 10px; border-radius: 2px; display: inline-block; }}
     .message {{
       margin-bottom: 14px;
       padding: 10px 12px;
@@ -415,6 +511,10 @@ class WeatherDashboard:
     <h2>指标结果</h2>
     {self.render_indices(indices)}
   </div>
+  <div class="panel">
+    <h2>数据图表</h2>
+    {self.render_event_charts(selected['event_id'], selected['event_type'])}
+  </div>
 </div>"""
 
     def render_location_form(self, event_id: str, event_type: str) -> str:
@@ -470,6 +570,198 @@ class WeatherDashboard:
   <thead><tr><th>点位</th><th>指标</th><th>数值</th><th>单位</th><th>阈值</th><th>方法</th></tr></thead>
   <tbody>{''.join(rows)}</tbody>
 </table></div>"""
+
+    def render_event_charts(self, event_id: str, event_type: str) -> str:
+        series = self.daily_series(event_id)
+        if not series:
+            return '<p class="muted">暂无气象序列。请先点击“拉取气象数据”。</p>'
+        configs = self.chart_configs(event_type)
+        charts = [self.render_chart(series, **config) for config in configs]
+        return f'<div class="chart-grid">{"".join(charts)}</div>'
+
+    def chart_configs(self, event_type: str) -> list[dict[str, Any]]:
+        common_temp = {
+            "title": "日最高气温变化",
+            "field": "temperature_max",
+            "unit": "摄氏度",
+            "mode": "line",
+            "color": "#d92d20",
+        }
+        if event_type == "sandstorm":
+            return [
+                {
+                    "title": "最大阵风风速变化",
+                    "field": "wind_gust_max",
+                    "unit": "米/秒",
+                    "mode": "line",
+                    "color": "#7a5c00",
+                    "threshold": 17.2,
+                    "threshold_label": "8级风",
+                },
+                {
+                    "title": "平均短波辐射变化",
+                    "field": "shortwave_mean",
+                    "unit": "瓦/平方米",
+                    "mode": "line",
+                    "color": "#f79009",
+                },
+            ]
+        if event_type == "cold_wave":
+            return [
+                {
+                    "title": "日最低气温变化",
+                    "field": "temperature_min",
+                    "unit": "摄氏度",
+                    "mode": "line",
+                    "color": "#175cd3",
+                    "threshold": 0,
+                    "threshold_label": "0摄氏度",
+                },
+                {
+                    "title": "最大阵风风速变化",
+                    "field": "wind_gust_max",
+                    "unit": "米/秒",
+                    "mode": "line",
+                    "color": "#475467",
+                },
+            ]
+        if event_type == "heat_stagnation":
+            return [
+                {**common_temp, "threshold": 35, "threshold_label": "35摄氏度"},
+                {
+                    "title": "静稳小时数变化",
+                    "field": "stagnant_hours",
+                    "unit": "小时",
+                    "mode": "bar",
+                    "color": "#12b76a",
+                },
+            ]
+        if event_type == "strong_wind":
+            return [
+                {
+                    "title": "最大阵风风速变化",
+                    "field": "wind_gust_max",
+                    "unit": "米/秒",
+                    "mode": "line",
+                    "color": "#7f56d9",
+                    "threshold": 24.5,
+                    "threshold_label": "10级风",
+                },
+                {
+                    "title": "10米平均风速变化",
+                    "field": "wind_speed_mean",
+                    "unit": "米/秒",
+                    "mode": "line",
+                    "color": "#0e9384",
+                },
+            ]
+        if event_type == "blizzard":
+            return [
+                {
+                    "title": "累计降雪量变化",
+                    "field": "snowfall_sum",
+                    "unit": "厘米",
+                    "mode": "bar",
+                    "color": "#2e90fa",
+                },
+                {
+                    "title": "最大积雪深度变化",
+                    "field": "snow_depth_max",
+                    "unit": "米",
+                    "mode": "line",
+                    "color": "#175cd3",
+                },
+            ]
+        return [common_temp]
+
+    def render_chart(
+        self,
+        series: list[dict[str, Any]],
+        title: str,
+        field: str,
+        unit: str,
+        mode: str,
+        color: str,
+        threshold: float | None = None,
+        threshold_label: str = "",
+    ) -> str:
+        locations = sorted({item["location_name"] for item in series if item.get(field) is not None})
+        if not locations:
+            return f'<div class="chart-card"><p class="chart-title">{esc(title)}</p><p class="muted">暂无可绘制数据</p></div>'
+        days = sorted({item["day"] for item in series if item.get(field) is not None})
+        values = [float(item[field]) for item in series if item.get(field) is not None]
+        if threshold is not None:
+            values.append(float(threshold))
+        min_value = min(values)
+        max_value = max(values)
+        if min_value == max_value:
+            min_value -= 1
+            max_value += 1
+        padding = (max_value - min_value) * 0.08
+        min_value -= padding
+        max_value += padding
+
+        width = 520
+        height = 220
+        left = 48
+        right = 18
+        top = 18
+        bottom = 36
+        plot_w = width - left - right
+        plot_h = height - top - bottom
+        palette = [color, "#175cd3", "#12b76a", "#f04438", "#7f56d9", "#0e9384"]
+
+        def x_pos(day: str) -> float:
+            if len(days) <= 1:
+                return left + plot_w / 2
+            return left + days.index(day) * plot_w / (len(days) - 1)
+
+        def y_pos(value: float) -> float:
+            return top + (max_value - value) * plot_h / (max_value - min_value)
+
+        parts = [
+            f'<div class="chart-card"><p class="chart-title">{esc(title)}</p>',
+            f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{esc(title)}">',
+            f'<line class="chart-axis" x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}"></line>',
+            f'<line class="chart-axis" x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}"></line>',
+        ]
+        for tick in range(5):
+            value = min_value + (max_value - min_value) * tick / 4
+            y = y_pos(value)
+            parts.append(f'<line class="chart-grid-line" x1="{left}" y1="{y:.2f}" x2="{left + plot_w}" y2="{y:.2f}"></line>')
+            parts.append(f'<text class="chart-label" x="4" y="{y + 3:.2f}">{esc(round(value, 1))}</text>')
+        if threshold is not None:
+            y = y_pos(threshold)
+            parts.append(f'<line x1="{left}" y1="{y:.2f}" x2="{left + plot_w}" y2="{y:.2f}" stroke="#d92d20" stroke-dasharray="5 4"></line>')
+            parts.append(f'<text class="chart-label" x="{left + plot_w - 52}" y="{y - 4:.2f}" fill="#d92d20">{esc(threshold_label)}</text>')
+
+        for index, location in enumerate(locations[:6]):
+            loc_series = [item for item in series if item["location_name"] == location and item.get(field) is not None]
+            loc_color = palette[index % len(palette)]
+            if mode == "bar":
+                bar_w = max(2, plot_w / max(1, len(days) * len(locations[:6])) * 0.7)
+                for item in loc_series:
+                    x = x_pos(item["day"]) + (index - (len(locations[:6]) - 1) / 2) * bar_w
+                    y = y_pos(float(item[field]))
+                    parts.append(
+                        f'<rect x="{x:.2f}" y="{y:.2f}" width="{bar_w:.2f}" height="{top + plot_h - y:.2f}" fill="{loc_color}" opacity="0.75"></rect>'
+                    )
+            else:
+                points = " ".join(f'{x_pos(item["day"]):.2f},{y_pos(float(item[field])):.2f}' for item in loc_series)
+                parts.append(f'<polyline points="{points}" fill="none" stroke="{loc_color}" stroke-width="2.2"></polyline>')
+                for item in loc_series:
+                    parts.append(f'<circle cx="{x_pos(item["day"]):.2f}" cy="{y_pos(float(item[field])):.2f}" r="2.5" fill="{loc_color}"></circle>')
+        if days:
+            parts.append(f'<text class="chart-label" x="{left}" y="{height - 10}">{esc(days[0])}</text>')
+            parts.append(f'<text class="chart-label" x="{left + plot_w - 62}" y="{height - 10}">{esc(days[-1])}</text>')
+        parts.append(f'<text class="chart-label" x="{width - 58}" y="12">{esc(unit)}</text>')
+        parts.append("</svg>")
+        legend = "".join(
+            f'<span class="legend-item"><span class="legend-swatch" style="background:{palette[index % len(palette)]}"></span>{esc(location)}</span>'
+            for index, location in enumerate(locations[:6])
+        )
+        parts.append(f'<div class="chart-legend">{legend}</div></div>')
+        return "".join(parts)
 
     def add_event(self, form: dict[str, list[str]]) -> str:
         event = Event(
