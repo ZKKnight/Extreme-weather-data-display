@@ -32,15 +32,21 @@ class WeatherDashboard:
         self.database = WeatherDatabase(db_path)
         self.database.init()
 
-    def events(self) -> list[sqlite3.Row]:
+    def events(self, event_type: str | None = None) -> list[sqlite3.Row]:
+        if event_type in EVENT_TYPES:
+            with self.database.connect() as conn:
+                return conn.execute(
+                    "SELECT * FROM events WHERE event_type = ? ORDER BY start_date DESC, event_id",
+                    (event_type,),
+                ).fetchall()
         return self.database.list_events()
 
-    def selected_event(self, event_id: str | None) -> sqlite3.Row | None:
+    def selected_event(self, event_id: str | None, events: list[sqlite3.Row] | None = None) -> sqlite3.Row | None:
         if event_id:
             event = self.database.get_event(event_id)
-            if event:
+            if event and (events is None or any(item["event_id"] == event["event_id"] for item in events)):
                 return event
-        events = self.events()
+        events = events if events is not None else self.events()
         return events[0] if events else None
 
     def event_counts(self, event_id: str) -> dict[str, int]:
@@ -72,9 +78,15 @@ class WeatherDashboard:
                 (event_id,),
             ).fetchall()
 
-    def render(self, selected_event_id: str | None = None, message: str = "") -> str:
-        events = self.events()
-        selected = self.selected_event(selected_event_id)
+    def render(
+        self,
+        selected_event_id: str | None = None,
+        message: str = "",
+        event_type_filter: str | None = None,
+    ) -> str:
+        active_filter = event_type_filter if event_type_filter in EVENT_TYPES else ""
+        events = self.events(active_filter or None)
+        selected = self.selected_event(selected_event_id, events)
         selected_id = selected["event_id"] if selected else ""
         locations = self.database.list_locations(selected_id) if selected else []
         indices = self.indices(selected_id) if selected else []
@@ -247,7 +259,8 @@ class WeatherDashboard:
       <div class="stack">
         <div class="panel">
           <h2>事件清单</h2>
-          <div class="event-list">{self.render_event_list(events, selected_id)}</div>
+          {self.render_type_filter(active_filter)}
+          <div class="event-list">{self.render_event_list(events, selected_id, active_filter)}</div>
         </div>
         <div class="panel">
           <h2>新增事件</h2>
@@ -263,7 +276,20 @@ class WeatherDashboard:
 </body>
 </html>"""
 
-    def render_event_list(self, events: list[sqlite3.Row], selected_id: str) -> str:
+    def render_type_filter(self, active_filter: str) -> str:
+        options = ['<option value="">全部类型</option>']
+        for key in EVENT_TYPES:
+            selected = " selected" if key == active_filter else ""
+            options.append(f'<option value="{esc(key)}"{selected}>{esc(EVENT_TYPE_LABELS[key])}</option>')
+        return f"""<form method="get" action="/" style="margin-bottom: 10px;">
+  <label>极端气象类型
+    <select name="type" onchange="this.form.submit()">
+      {''.join(options)}
+    </select>
+  </label>
+</form>"""
+
+    def render_event_list(self, events: list[sqlite3.Row], selected_id: str, event_type_filter: str = "") -> str:
         if not events:
             return '<p class="muted">暂无事件</p>'
         items = []
@@ -271,6 +297,8 @@ class WeatherDashboard:
             active = " active" if event["event_id"] == selected_id else ""
             label = EVENT_TYPE_LABELS.get(event["event_type"], event["event_type"])
             href = f"/?event_id={quote(event['event_id'])}"
+            if event_type_filter:
+                href += f"&type={quote(event_type_filter)}"
             items.append(
                 f"""<a class="event-row{active}" href="{href}">
   <strong>{esc(event['name'])}</strong>
@@ -523,7 +551,13 @@ def make_handler(app: WeatherDashboard) -> type[BaseHTTPRequestHandler]:
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
             if parsed.path == "/":
-                self.send_html(app.render(query.get("event_id", [None])[0], query.get("message", [""])[0]))
+                self.send_html(
+                    app.render(
+                        query.get("event_id", [None])[0],
+                        query.get("message", [""])[0],
+                        query.get("type", [""])[0],
+                    )
+                )
             elif parsed.path == "/export/indices.csv":
                 payload = app.export_indices_csv()
                 self.send_response(HTTPStatus.OK)
