@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .analysis import calculate_indices
+from .analysis import calculate_indices, display_index_name, display_method, display_threshold, display_unit
 from .db import WeatherDatabase
 from .models import EVENT_TYPES, Event, Location
 from .open_meteo import OpenMeteoClient, date_chunks, expand_date_window, hourly_json_to_rows
@@ -161,7 +161,12 @@ def cmd_export(args: argparse.Namespace) -> None:
         writer = csv.DictWriter(fh, fieldnames=rows[0].keys())
         writer.writeheader()
         for row in rows:
-            writer.writerow(dict(row))
+            output = dict(row)
+            output["index_name"] = display_index_name(output["index_name"])
+            output["unit"] = display_unit(output["unit"])
+            output["threshold"] = display_threshold(output["threshold"])
+            output["calculation_method"] = display_method(output["calculation_method"])
+            writer.writerow(output)
     print(f"Exported: {out}")
 
 

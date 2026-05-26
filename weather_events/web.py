@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from .analysis import calculate_indices
+from .analysis import calculate_indices, display_index_name, display_method, display_threshold, display_unit
 from .db import WeatherDatabase
 from .models import EVENT_TYPES, EVENT_TYPE_LABELS, Event, Location
 from .open_meteo import OpenMeteoClient, date_chunks, expand_date_window, hourly_json_to_rows
@@ -459,11 +459,11 @@ class WeatherDashboard:
             rows.append(
                 f"""<tr>
   <td>{esc(item['location_name'])}</td>
-  <td>{esc(item['index_name'])}</td>
+  <td>{esc(display_index_name(item['index_name']))}</td>
   <td>{esc(round(item['index_value'], 4) if item['index_value'] is not None else '')}</td>
-  <td>{esc(item['unit'])}</td>
-  <td>{esc(item['threshold'])}</td>
-  <td>{esc(item['calculation_method'])}</td>
+  <td>{esc(display_unit(item['unit']))}</td>
+  <td>{esc(display_threshold(item['threshold']))}</td>
+  <td>{esc(display_method(item['calculation_method']))}</td>
 </tr>"""
             )
         return f"""<div class="scroll"><table>
@@ -571,6 +571,14 @@ class WeatherDashboard:
             values = []
             for key in headers:
                 value = "" if row[key] is None else str(row[key])
+                if key == "index_name":
+                    value = display_index_name(value)
+                elif key == "unit":
+                    value = display_unit(value)
+                elif key == "threshold":
+                    value = display_threshold(value)
+                elif key == "calculation_method":
+                    value = display_method(value)
                 values.append(json.dumps(value, ensure_ascii=False))
             lines.append(",".join(values))
         return ("\ufeff" + "\n".join(lines) + "\n").encode("utf-8")
