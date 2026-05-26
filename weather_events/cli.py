@@ -95,17 +95,24 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     client = OpenMeteoClient(timeout_s=args.timeout)
 
     total = 0
+    failures = []
     for location in locations:
-        data = client.fetch_hourly(
-            latitude=location["latitude"],
-            longitude=location["longitude"],
-            start_date=start_date,
-            end_date=end_date,
-        )
-        rows = hourly_json_to_rows(data, event["event_id"], location["location_id"])
-        total += database.upsert_weather_rows(rows)
-        print(f"Fetched {len(rows)} rows for {location['location_id']} ({location['name']})")
+        try:
+            data = client.fetch_hourly(
+                latitude=location["latitude"],
+                longitude=location["longitude"],
+                start_date=start_date,
+                end_date=end_date,
+            )
+            rows = hourly_json_to_rows(data, event["event_id"], location["location_id"])
+            total += database.upsert_weather_rows(rows)
+            print(f"Fetched {len(rows)} rows for {location['location_id']} ({location['name']})")
+        except Exception as exc:
+            failures.append(f"{location['location_id']} ({location['name']}): {exc}")
+            print(f"Failed {location['location_id']} ({location['name']}): {exc}")
     print(f"Saved weather rows: {total}")
+    if failures:
+        raise SystemExit("Some locations failed:\n" + "\n".join(failures))
 
 
 def _row_to_dict(row: Any) -> dict[str, Any]:

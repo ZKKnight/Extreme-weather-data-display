@@ -19,6 +19,14 @@ from .open_meteo import OpenMeteoClient, expand_date_window, hourly_json_to_rows
 DEFAULT_DB = "data/extreme_weather.sqlite"
 
 
+class PartialFetchError(RuntimeError):
+    def __init__(self, total_rows: int, failures: list[str]) -> None:
+        self.total_rows = total_rows
+        self.failures = failures
+        message = f"已保存 {total_rows} 条；失败点位：{'；'.join(failures)}"
+        super().__init__(message)
+
+
 def esc(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
@@ -504,15 +512,21 @@ class WeatherDashboard:
         start, end = expand_date_window(event["start_date"], event["end_date"])
         client = OpenMeteoClient()
         total = 0
+        failures = []
         for location in locations:
-            data = client.fetch_hourly(
-                latitude=location["latitude"],
-                longitude=location["longitude"],
-                start_date=start,
-                end_date=end,
-            )
-            rows = hourly_json_to_rows(data, event_id, location["location_id"])
-            total += self.database.upsert_weather_rows(rows)
+            try:
+                data = client.fetch_hourly(
+                    latitude=location["latitude"],
+                    longitude=location["longitude"],
+                    start_date=start,
+                    end_date=end,
+                )
+                rows = hourly_json_to_rows(data, event_id, location["location_id"])
+                total += self.database.upsert_weather_rows(rows)
+            except Exception as exc:
+                failures.append(f"{location['location_id']}（{location['name']}）：{exc}")
+        if failures:
+            raise PartialFetchError(total, failures)
         return total
 
     def analyze_event(self, event_id: str) -> int:
@@ -609,8 +623,11 @@ def make_handler(app: WeatherDashboard) -> type[BaseHTTPRequestHandler]:
                     self.redirect(event_id, "点位已保存", optional(form, "event_type"))
                 elif parsed.path == "/events/fetch":
                     event_id = required(form, "event_id")
-                    total = app.fetch_event(event_id)
-                    self.redirect(event_id, f"气象数据已拉取：{total} 条", optional(form, "event_type"))
+                    try:
+                        total = app.fetch_event(event_id)
+                        self.redirect(event_id, f"气象数据已拉取：{total} 条", optional(form, "event_type"))
+                    except PartialFetchError as exc:
+                        self.redirect(event_id, f"部分气象数据已拉取：{exc}", optional(form, "event_type"))
                 elif parsed.path == "/events/analyze":
                     event_id = required(form, "event_id")
                     total = app.analyze_event(event_id)
