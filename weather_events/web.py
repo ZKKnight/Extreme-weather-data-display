@@ -1,0 +1,609 @@
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import sqlite3
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, quote, unquote, urlparse
+
+from .analysis import calculate_indices
+from .db import WeatherDatabase
+from .models import EVENT_TYPES, EVENT_TYPE_LABELS, Event, Location
+from .open_meteo import OpenMeteoClient, expand_date_window, hourly_json_to_rows
+
+
+DEFAULT_DB = "data/extreme_weather.sqlite"
+
+
+def esc(value: Any) -> str:
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {key: row[key] for key in row.keys()}
+
+
+class WeatherDashboard:
+    def __init__(self, db_path: str | Path) -> None:
+        self.database = WeatherDatabase(db_path)
+        self.database.init()
+
+    def events(self) -> list[sqlite3.Row]:
+        return self.database.list_events()
+
+    def selected_event(self, event_id: str | None) -> sqlite3.Row | None:
+        if event_id:
+            event = self.database.get_event(event_id)
+            if event:
+                return event
+        events = self.events()
+        return events[0] if events else None
+
+    def event_counts(self, event_id: str) -> dict[str, int]:
+        with self.database.connect() as conn:
+            return {
+                "locations": conn.execute(
+                    "SELECT COUNT(*) FROM locations WHERE event_id = ?", (event_id,)
+                ).fetchone()[0],
+                "weather_rows": conn.execute(
+                    "SELECT COUNT(*) FROM weather_timeseries WHERE event_id = ?", (event_id,)
+                ).fetchone()[0],
+                "indices": conn.execute(
+                    "SELECT COUNT(*) FROM derived_indices WHERE event_id = ?", (event_id,)
+                ).fetchone()[0],
+            }
+
+    def indices(self, event_id: str) -> list[sqlite3.Row]:
+        with self.database.connect() as conn:
+            return conn.execute(
+                """
+                SELECT
+                    l.name AS location_name, l.province, d.index_name, d.index_value,
+                    d.unit, d.threshold, d.calculation_method
+                FROM derived_indices d
+                JOIN locations l ON l.location_id = d.location_id
+                WHERE d.event_id = ?
+                ORDER BY l.location_id, d.index_name
+                """,
+                (event_id,),
+            ).fetchall()
+
+    def render(self, selected_event_id: str | None = None, message: str = "") -> str:
+        events = self.events()
+        selected = self.selected_event(selected_event_id)
+        selected_id = selected["event_id"] if selected else ""
+        locations = self.database.list_locations(selected_id) if selected else []
+        indices = self.indices(selected_id) if selected else []
+        counts = self.event_counts(selected_id) if selected else {"locations": 0, "weather_rows": 0, "indices": 0}
+
+        return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>极端气象事件数据库</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --surface-2: #eef2f6;
+      --border: #d7dde5;
+      --text: #1f2933;
+      --muted: #667085;
+      --accent: #1f6feb;
+      --accent-dark: #185abc;
+      --danger: #b42318;
+      --good: #16794c;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0;
+    }}
+    header {{
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }}
+    h1 {{ margin: 0; font-size: 18px; font-weight: 650; }}
+    h2 {{ margin: 0 0 12px; font-size: 15px; font-weight: 650; }}
+    main {{
+      display: grid;
+      grid-template-columns: 330px minmax(0, 1fr);
+      min-height: calc(100vh - 58px);
+    }}
+    aside {{
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      padding: 16px;
+      overflow: auto;
+    }}
+    section {{ padding: 18px 22px; }}
+    .stack {{ display: grid; gap: 14px; }}
+    .panel {{
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+    }}
+    .event-list {{ display: grid; gap: 8px; }}
+    .event-row {{
+      display: block;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: inherit;
+      text-decoration: none;
+      background: #fff;
+    }}
+    .event-row.active {{ border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }}
+    .event-row strong {{ display: block; line-height: 1.35; }}
+    .muted {{ color: var(--muted); font-size: 12px; }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: #344054;
+      font-size: 12px;
+      white-space: nowrap;
+    }}
+    .stats {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .stat {{
+      padding: 12px;
+      background: var(--surface-2);
+      border-radius: 8px;
+    }}
+    .stat b {{ display: block; font-size: 22px; line-height: 1.1; }}
+    form.grid {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      align-items: end;
+    }}
+    label {{ display: grid; gap: 5px; color: var(--muted); font-size: 12px; }}
+    input, select, textarea {{
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 9px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+    }}
+    textarea {{ min-height: 70px; resize: vertical; }}
+    button, .button {{
+      min-height: 34px;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 7px 12px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+    }}
+    button:hover, .button:hover {{ background: var(--accent-dark); }}
+    button.secondary {{ background: #fff; color: var(--accent); }}
+    button.secondary:hover {{ background: #edf4ff; }}
+    button.danger {{ background: #fff; color: var(--danger); border-color: #f0b8b2; }}
+    button.danger:hover {{ background: #fff4f2; }}
+    .actions {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }}
+    table {{ width: 100%; border-collapse: collapse; background: #fff; }}
+    th, td {{ border-bottom: 1px solid var(--border); padding: 8px 7px; text-align: left; vertical-align: top; }}
+    th {{ background: #f9fafb; color: #475467; font-weight: 650; }}
+    .scroll {{ overflow: auto; max-height: 430px; border: 1px solid var(--border); border-radius: 8px; }}
+    .message {{
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      border: 1px solid #b7d7c5;
+      border-radius: 8px;
+      background: #effaf4;
+      color: var(--good);
+    }}
+    .wide {{ grid-column: span 2; }}
+    .full {{ grid-column: 1 / -1; }}
+    @media (max-width: 980px) {{
+      main {{ grid-template-columns: 1fr; }}
+      aside {{ border-right: 0; border-bottom: 1px solid var(--border); }}
+      form.grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>极端气象事件数据库</h1>
+    <div class="actions">
+      <span class="badge">SQLite</span>
+      <span class="badge">Open-Meteo Historical Weather API</span>
+    </div>
+  </header>
+  <main>
+    <aside>
+      <div class="stack">
+        <div class="panel">
+          <h2>事件清单</h2>
+          <div class="event-list">{self.render_event_list(events, selected_id)}</div>
+        </div>
+        <div class="panel">
+          <h2>新增事件</h2>
+          {self.render_event_form()}
+        </div>
+      </div>
+    </aside>
+    <section>
+      {f'<div class="message">{esc(message)}</div>' if message else ''}
+      {self.render_selected_event(selected, locations, indices, counts)}
+    </section>
+  </main>
+</body>
+</html>"""
+
+    def render_event_list(self, events: list[sqlite3.Row], selected_id: str) -> str:
+        if not events:
+            return '<p class="muted">暂无事件</p>'
+        items = []
+        for event in events:
+            active = " active" if event["event_id"] == selected_id else ""
+            label = EVENT_TYPE_LABELS.get(event["event_type"], event["event_type"])
+            href = f"/?event_id={quote(event['event_id'])}"
+            items.append(
+                f"""<a class="event-row{active}" href="{href}">
+  <strong>{esc(event['name'])}</strong>
+  <span class="muted">{esc(label)} · {esc(event['start_date'])} 至 {esc(event['end_date'])}</span><br>
+  <span class="muted">{esc(event['region'])}</span>
+</a>"""
+            )
+        return "\n".join(items)
+
+    def render_event_form(self) -> str:
+        options = "\n".join(
+            f'<option value="{esc(key)}">{esc(EVENT_TYPE_LABELS[key])}</option>' for key in EVENT_TYPES
+        )
+        return f"""<form class="grid" method="post" action="/events/add">
+  <label>编号<input name="event_id" required placeholder="E20250410_SANDSTORM"></label>
+  <label>类型<select name="event_type">{options}</select></label>
+  <label class="wide">名称<input name="name" required></label>
+  <label>开始日期<input type="date" name="start_date" required></label>
+  <label>结束日期<input type="date" name="end_date" required></label>
+  <label class="wide">区域<input name="region" required></label>
+  <label class="wide">来源名称<input name="source_name"></label>
+  <label class="wide">来源链接<input name="source_url"></label>
+  <label class="full">备注<textarea name="notes"></textarea></label>
+  <button class="full" type="submit">保存事件</button>
+</form>"""
+
+    def render_selected_event(
+        self,
+        selected: sqlite3.Row | None,
+        locations: list[sqlite3.Row],
+        indices: list[sqlite3.Row],
+        counts: dict[str, int],
+    ) -> str:
+        if selected is None:
+            return '<div class="panel"><h2>事件详情</h2><p class="muted">请先新增或导入事件。</p></div>'
+        label = EVENT_TYPE_LABELS.get(selected["event_type"], selected["event_type"])
+        source = (
+            f'<a href="{esc(selected["source_url"])}" target="_blank" rel="noreferrer">{esc(selected["source_name"] or "来源")}</a>'
+            if selected["source_url"]
+            else esc(selected["source_name"])
+        )
+        return f"""<div class="stack">
+  <div class="panel">
+    <div class="actions" style="justify-content: space-between;">
+      <div>
+        <h2>{esc(selected['name'])}</h2>
+        <div class="muted">{esc(selected['event_id'])} · {esc(label)} · {esc(selected['start_date'])} 至 {esc(selected['end_date'])}</div>
+        <div class="muted">{esc(selected['region'])}{' · ' + source if source else ''}</div>
+      </div>
+      <form method="post" action="/events/delete">
+        <input type="hidden" name="event_id" value="{esc(selected['event_id'])}">
+        <button class="danger" type="submit">删除事件</button>
+      </form>
+    </div>
+  </div>
+  <div class="stats">
+    <div class="stat"><b>{counts['locations']}</b><span class="muted">点位</span></div>
+    <div class="stat"><b>{counts['weather_rows']}</b><span class="muted">气象序列</span></div>
+    <div class="stat"><b>{counts['indices']}</b><span class="muted">派生指标</span></div>
+  </div>
+  <div class="panel">
+    <h2>数据操作</h2>
+    <div class="actions">
+      <form method="post" action="/events/fetch">
+        <input type="hidden" name="event_id" value="{esc(selected['event_id'])}">
+        <button type="submit">拉取气象数据</button>
+      </form>
+      <form method="post" action="/events/analyze">
+        <input type="hidden" name="event_id" value="{esc(selected['event_id'])}">
+        <button class="secondary" type="submit">计算指标</button>
+      </form>
+      <a class="button" href="/export/indices.csv">导出指标 CSV</a>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>新增点位</h2>
+    {self.render_location_form(selected['event_id'])}
+  </div>
+  <div class="panel">
+    <h2>点位列表</h2>
+    {self.render_locations(locations)}
+  </div>
+  <div class="panel">
+    <h2>指标结果</h2>
+    {self.render_indices(indices)}
+  </div>
+</div>"""
+
+    def render_location_form(self, event_id: str) -> str:
+        return f"""<form class="grid" method="post" action="/locations/add">
+  <input type="hidden" name="event_id" value="{esc(event_id)}">
+  <label>点位编号<input name="location_id" required placeholder="E20250410_JIUQUAN"></label>
+  <label>名称<input name="name" required></label>
+  <label>省份<input name="province"></label>
+  <label>类型<input name="location_type" value="representative_point"></label>
+  <label>纬度<input type="number" step="0.000001" name="latitude" required></label>
+  <label>经度<input type="number" step="0.000001" name="longitude" required></label>
+  <label>海拔<input type="number" step="0.1" name="altitude_m"></label>
+  <button type="submit">保存点位</button>
+</form>"""
+
+    def render_locations(self, locations: list[sqlite3.Row]) -> str:
+        if not locations:
+            return '<p class="muted">暂无点位</p>'
+        rows = []
+        for location in locations:
+            rows.append(
+                f"""<tr>
+  <td>{esc(location['location_id'])}</td>
+  <td>{esc(location['name'])}</td>
+  <td>{esc(location['province'])}</td>
+  <td>{esc(location['latitude'])}</td>
+  <td>{esc(location['longitude'])}</td>
+  <td>{esc(location['location_type'])}</td>
+</tr>"""
+            )
+        return f"""<div class="scroll"><table>
+  <thead><tr><th>编号</th><th>名称</th><th>省份</th><th>纬度</th><th>经度</th><th>类型</th></tr></thead>
+  <tbody>{''.join(rows)}</tbody>
+</table></div>"""
+
+    def render_indices(self, indices: list[sqlite3.Row]) -> str:
+        if not indices:
+            return '<p class="muted">暂无指标</p>'
+        rows = []
+        for item in indices:
+            rows.append(
+                f"""<tr>
+  <td>{esc(item['location_name'])}</td>
+  <td>{esc(item['index_name'])}</td>
+  <td>{esc(round(item['index_value'], 4) if item['index_value'] is not None else '')}</td>
+  <td>{esc(item['unit'])}</td>
+  <td>{esc(item['threshold'])}</td>
+  <td>{esc(item['calculation_method'])}</td>
+</tr>"""
+            )
+        return f"""<div class="scroll"><table>
+  <thead><tr><th>点位</th><th>指标</th><th>数值</th><th>单位</th><th>阈值</th><th>方法</th></tr></thead>
+  <tbody>{''.join(rows)}</tbody>
+</table></div>"""
+
+    def add_event(self, form: dict[str, list[str]]) -> str:
+        event = Event(
+            event_id=required(form, "event_id"),
+            event_type=required(form, "event_type"),  # type: ignore[arg-type]
+            name=required(form, "name"),
+            start_date=required(form, "start_date"),
+            end_date=required(form, "end_date"),
+            region=required(form, "region"),
+            source_name=optional(form, "source_name"),
+            source_url=optional(form, "source_url"),
+            notes=optional(form, "notes"),
+        )
+        self.database.add_event(event)
+        return event.event_id
+
+    def add_location(self, form: dict[str, list[str]]) -> str:
+        altitude = optional(form, "altitude_m")
+        location = Location(
+            location_id=required(form, "location_id"),
+            event_id=required(form, "event_id"),
+            name=required(form, "name"),
+            province=optional(form, "province"),
+            latitude=float(required(form, "latitude")),
+            longitude=float(required(form, "longitude")),
+            location_type=optional(form, "location_type") or "representative_point",
+            altitude_m=float(altitude) if altitude else None,
+        )
+        self.database.add_location(location)
+        return location.event_id
+
+    def fetch_event(self, event_id: str) -> int:
+        event = self.database.get_event(event_id)
+        if event is None:
+            raise ValueError(f"Event not found: {event_id}")
+        locations = self.database.list_locations(event_id)
+        if not locations:
+            raise ValueError(f"No locations for event: {event_id}")
+
+        start, end = expand_date_window(event["start_date"], event["end_date"])
+        client = OpenMeteoClient()
+        total = 0
+        for location in locations:
+            data = client.fetch_hourly(
+                latitude=location["latitude"],
+                longitude=location["longitude"],
+                start_date=start,
+                end_date=end,
+            )
+            rows = hourly_json_to_rows(data, event_id, location["location_id"])
+            total += self.database.upsert_weather_rows(rows)
+        return total
+
+    def analyze_event(self, event_id: str) -> int:
+        event = self.database.get_event(event_id)
+        if event is None:
+            raise ValueError(f"Event not found: {event_id}")
+        count = 0
+        for location in self.database.list_locations(event_id):
+            rows = [row_to_dict(row) for row in self.database.get_weather_rows(event_id, location["location_id"])]
+            indices = calculate_indices(event["event_type"], rows)
+            self.database.upsert_indices(event_id, location["location_id"], indices)
+            count += len(indices)
+        return count
+
+    def export_indices_csv(self) -> bytes:
+        with self.database.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    e.event_id, e.event_type, e.name AS event_name, e.start_date, e.end_date, e.region,
+                    l.location_id, l.name AS location_name, l.province, l.latitude, l.longitude,
+                    d.index_name, d.index_value, d.unit, d.threshold, d.calculation_method
+                FROM derived_indices d
+                JOIN events e ON e.event_id = d.event_id
+                JOIN locations l ON l.location_id = d.location_id
+                ORDER BY e.start_date DESC, e.event_id, l.location_id, d.index_name
+                """
+            ).fetchall()
+        headers = rows[0].keys() if rows else [
+            "event_id", "event_type", "event_name", "start_date", "end_date", "region",
+            "location_id", "location_name", "province", "latitude", "longitude",
+            "index_name", "index_value", "unit", "threshold", "calculation_method",
+        ]
+        lines = [",".join(headers)]
+        for row in rows:
+            values = []
+            for key in headers:
+                value = "" if row[key] is None else str(row[key])
+                values.append(json.dumps(value, ensure_ascii=False))
+            lines.append(",".join(values))
+        return ("\ufeff" + "\n".join(lines) + "\n").encode("utf-8")
+
+
+def required(form: dict[str, list[str]], key: str) -> str:
+    value = optional(form, key)
+    if not value:
+        raise ValueError(f"Missing field: {key}")
+    return value
+
+
+def optional(form: dict[str, list[str]], key: str) -> str:
+    values = form.get(key, [""])
+    return values[0].strip() if values else ""
+
+
+def make_handler(app: WeatherDashboard) -> type[BaseHTTPRequestHandler]:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            if parsed.path == "/":
+                self.send_html(app.render(query.get("event_id", [None])[0], query.get("message", [""])[0]))
+            elif parsed.path == "/export/indices.csv":
+                payload = app.export_indices_csv()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition", 'attachment; filename="indices.csv"')
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND)
+
+        def do_POST(self) -> None:
+            try:
+                form = self.read_form()
+                parsed = urlparse(self.path)
+                if parsed.path == "/events/add":
+                    event_id = app.add_event(form)
+                    self.redirect(event_id, "事件已保存")
+                elif parsed.path == "/events/delete":
+                    event_id = required(form, "event_id")
+                    app.database.delete_event(event_id)
+                    self.redirect("", "事件已删除")
+                elif parsed.path == "/locations/add":
+                    event_id = app.add_location(form)
+                    self.redirect(event_id, "点位已保存")
+                elif parsed.path == "/events/fetch":
+                    event_id = required(form, "event_id")
+                    total = app.fetch_event(event_id)
+                    self.redirect(event_id, f"气象数据已拉取：{total} 条")
+                elif parsed.path == "/events/analyze":
+                    event_id = required(form, "event_id")
+                    total = app.analyze_event(event_id)
+                    self.redirect(event_id, f"指标已计算：{total} 项")
+                else:
+                    self.send_error(HTTPStatus.NOT_FOUND)
+            except Exception as exc:
+                self.redirect(optional(parse_qs(urlparse(self.path).query), "event_id"), f"操作失败：{exc}")
+
+        def read_form(self) -> dict[str, list[str]]:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = self.rfile.read(length).decode("utf-8")
+            return parse_qs(payload, keep_blank_values=True)
+
+        def redirect(self, event_id: str, message: str) -> None:
+            target = f"/?message={quote(message)}"
+            if event_id:
+                target = f"/?event_id={quote(event_id)}&message={quote(message)}"
+            self.send_response(HTTPStatus.SEE_OTHER)
+            self.send_header("Location", target)
+            self.end_headers()
+
+        def send_html(self, body: str) -> None:
+            payload = body.encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+    return Handler
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Extreme weather event dashboard")
+    parser.add_argument("--db", default=DEFAULT_DB, help=f"SQLite database path, default: {DEFAULT_DB}")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    app = WeatherDashboard(args.db)
+    server = ThreadingHTTPServer((args.host, args.port), make_handler(app))
+    print(f"Dashboard running at http://{args.host}:{args.port}")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

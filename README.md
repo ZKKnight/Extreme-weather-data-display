@@ -7,6 +7,7 @@ Python 初版功能：
 - 根据事件时间和点位经纬度自动调用 Open-Meteo Historical Weather API。
 - 将逐小时气象数据保存到 SQLite。
 - 计算基础派生指标并导出 CSV。
+- 提供本地 Web 界面进行事件、点位、数据拉取和指标查看。
 
 ## 快速开始
 
@@ -20,6 +21,18 @@ python -m weather_events.cli export-indices --out outputs/indices.csv
 ```
 
 默认数据库路径为 `data/extreme_weather.sqlite`。
+
+## 本地界面
+
+```powershell
+python -m weather_events.web
+```
+
+打开：
+
+```text
+http://127.0.0.1:8000
+```
 
 ## 事件类型编码
 
