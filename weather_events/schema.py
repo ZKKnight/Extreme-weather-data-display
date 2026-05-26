@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS events (
     event_type TEXT NOT NULL CHECK (
         event_type IN ('sandstorm', 'cold_wave', 'heat_stagnation', 'strong_wind', 'blizzard')
     ),
+    event_subtype TEXT DEFAULT '',
     name TEXT NOT NULL,
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
 
 CREATE TABLE IF NOT EXISTS locations (
     location_id TEXT PRIMARY KEY,

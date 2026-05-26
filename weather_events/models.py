@@ -22,6 +22,11 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "blizzard": "暴雪",
 }
 
+EVENT_SUBTYPE_LABELS: dict[str, str] = {
+    "heat": "高温",
+    "stagnation": "静稳",
+}
+
 
 @dataclass(frozen=True)
 class Event:
@@ -31,6 +36,7 @@ class Event:
     start_date: str
     end_date: str
     region: str
+    event_subtype: str = ""
     source_name: str = ""
     source_url: str = ""
     notes: str = ""

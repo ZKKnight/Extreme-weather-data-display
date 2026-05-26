@@ -32,6 +32,7 @@ def cmd_add_event(args: argparse.Namespace) -> None:
         Event(
             event_id=args.event_id,
             event_type=args.event_type,
+            event_subtype=args.event_subtype or "",
             name=args.name,
             start_date=args.start_date,
             end_date=args.end_date,
@@ -186,6 +187,7 @@ def cmd_import_events(args: argparse.Namespace) -> None:
             Event(
                 event_id=item["event_id"],
                 event_type=item["event_type"],
+                event_subtype=item.get("event_subtype", ""),
                 name=item["name"],
                 start_date=item["start_date"],
                 end_date=item["end_date"],
@@ -233,6 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_event = sub.add_parser("add-event", help="Add or update an extreme weather event")
     add_event.add_argument("--event-id", required=True)
     add_event.add_argument("--event-type", required=True, choices=EVENT_TYPES)
+    add_event.add_argument("--event-subtype")
     add_event.add_argument("--name", required=True)
     add_event.add_argument("--start-date", required=True)
     add_event.add_argument("--end-date", required=True)

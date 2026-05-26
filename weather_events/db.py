@@ -22,6 +22,12 @@ class WeatherDatabase:
     def init(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA_SQL)
+            self._migrate(conn)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(events)").fetchall()}
+        if "event_subtype" not in columns:
+            conn.execute("ALTER TABLE events ADD COLUMN event_subtype TEXT DEFAULT ''")
 
     def add_event(self, event: Event) -> None:
         if event.event_type not in EVENT_TYPES:
@@ -30,12 +36,13 @@ class WeatherDatabase:
             conn.execute(
                 """
                 INSERT INTO events (
-                    event_id, event_type, name, start_date, end_date, region,
+                    event_id, event_type, event_subtype, name, start_date, end_date, region,
                     source_name, source_url, notes, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(event_id) DO UPDATE SET
                     event_type=excluded.event_type,
+                    event_subtype=excluded.event_subtype,
                     name=excluded.name,
                     start_date=excluded.start_date,
                     end_date=excluded.end_date,
@@ -48,6 +55,7 @@ class WeatherDatabase:
                 (
                     event.event_id,
                     event.event_type,
+                    event.event_subtype,
                     event.name,
                     event.start_date,
                     event.end_date,

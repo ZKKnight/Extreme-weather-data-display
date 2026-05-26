@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .analysis import calculate_indices, display_index_name, display_method, display_threshold, display_unit
 from .db import WeatherDatabase
-from .models import EVENT_TYPES, EVENT_TYPE_LABELS, Event, Location
+from .models import EVENT_TYPES, EVENT_TYPE_LABELS, EVENT_SUBTYPE_LABELS, Event, Location
 from .open_meteo import OpenMeteoClient, date_chunks, expand_date_window, hourly_json_to_rows
 
 
@@ -39,6 +39,17 @@ def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 def safe_float(value: Any) -> float | None:
     if value is None:
         return None
+
+
+def event_subtype_label(event: sqlite3.Row | dict[str, Any]) -> str:
+    try:
+        subtype = event["event_subtype"]
+    except (KeyError, IndexError):
+        subtype = ""
+    event_type = event["event_type"]
+    if not subtype and event_type == "heat_stagnation":
+        subtype = "heat"
+    return EVENT_SUBTYPE_LABELS.get(subtype, "")
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -414,23 +425,32 @@ class WeatherDashboard:
         for event in events:
             active = " active" if event["event_id"] == selected_id else ""
             label = EVENT_TYPE_LABELS.get(event["event_type"], event["event_type"])
+            subtype = event_subtype_label(event)
+            label_text = f"{label}/{subtype}" if subtype else label
             href = f"/?event_id={quote(event['event_id'])}"
             if event_type_filter:
                 href += f"&type={quote(event_type_filter)}"
             items.append(
                 f"""<a class="event-row{active}" href="{href}">
   <strong>{esc(event['name'])}</strong>
-  <span class="muted">{esc(label)} · {esc(event['start_date'])} 至 {esc(event['end_date'])}</span><br>
+  <span class="muted">{esc(label_text)} · {esc(event['start_date'])} 至 {esc(event['end_date'])}</span><br>
   <span class="muted">{esc(event['region'])}</span>
 </a>"""
             )
         return "\n".join(items)
 
     def render_event_form(self, event_type: str) -> str:
+        subtype_field = ""
+        if event_type == "heat_stagnation":
+            subtype_field = """<label>子类别<select name="event_subtype">
+  <option value="heat">高温</option>
+  <option value="stagnation">静稳</option>
+</select></label>"""
         return f"""<form class="grid" method="post" action="/events/add">
   <input type="hidden" name="event_type" value="{esc(event_type)}">
   <label>编号<input name="event_id" required placeholder="E20250410_SANDSTORM"></label>
   <label>类别<input value="{esc(EVENT_TYPE_LABELS[event_type])}" disabled></label>
+  {subtype_field}
   <label class="wide">名称<input name="name" required></label>
   <label>开始日期<input type="date" name="start_date" required></label>
   <label>结束日期<input type="date" name="end_date" required></label>
@@ -458,6 +478,8 @@ class WeatherDashboard:
   </div>
 </div>"""
         label = EVENT_TYPE_LABELS.get(selected["event_type"], selected["event_type"])
+        subtype = event_subtype_label(selected)
+        label_text = f"{label}/{subtype}" if subtype else label
         source = (
             f'<a href="{esc(selected["source_url"])}" target="_blank" rel="noreferrer">{esc(selected["source_name"] or "来源")}</a>'
             if selected["source_url"]
@@ -468,7 +490,7 @@ class WeatherDashboard:
     <div class="actions" style="justify-content: space-between;">
       <div>
         <h2>{esc(selected['name'])}</h2>
-        <div class="muted">{esc(selected['event_id'])} · {esc(label)} · {esc(selected['start_date'])} 至 {esc(selected['end_date'])}</div>
+        <div class="muted">{esc(selected['event_id'])} · {esc(label_text)} · {esc(selected['start_date'])} 至 {esc(selected['end_date'])}</div>
         <div class="muted">{esc(selected['region'])}{' · ' + source if source else ''}</div>
       </div>
       <form method="post" action="/events/delete">
@@ -767,6 +789,7 @@ class WeatherDashboard:
         event = Event(
             event_id=required(form, "event_id"),
             event_type=required(form, "event_type"),  # type: ignore[arg-type]
+            event_subtype=optional(form, "event_subtype"),
             name=required(form, "name"),
             start_date=required(form, "start_date"),
             end_date=required(form, "end_date"),
