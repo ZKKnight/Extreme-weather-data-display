@@ -1,0 +1,9 @@
+location_id,event_id,name,province,latitude,longitude,location_type,altitude_m
+E20250410_JIUQUAN,E20250410_SANDSTORM,酒泉,甘肃,39.7328,98.4944,city_representative,
+E20250410_ALXA,E20250410_SANDSTORM,阿拉善左旗,内蒙古,38.8330,105.6660,city_representative,
+E20250123_URUMQI,E20250123_COLDWAVE,乌鲁木齐,新疆,43.8256,87.6168,city_representative,
+E20250123_XINING,E20250123_COLDWAVE,西宁,青海,36.6171,101.7782,city_representative,
+E202406_TURPAN,E202406_XJ_HEAT,吐鲁番,新疆,42.9513,89.1895,city_representative,
+E202406_HAMI,E202406_XJ_HEAT,哈密,新疆,42.8193,93.5151,city_representative,
+E202404_TACHENG,E202404_XJ_WIND,塔城,新疆,46.7453,82.9803,city_representative,
+E2024_ALTAY_CITY,E2024_ALTAY_SNOW,阿勒泰,新疆,47.8486,88.1396,city_representative,

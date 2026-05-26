@@ -1,0 +1,13 @@
+[project]
+name = "extreme-weather-data-display"
+version = "0.1.0"
+description = "Extreme weather event database and Open-Meteo historical data collector."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+weather-db = "weather_events.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["weather_events*"]

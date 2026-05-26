@@ -1,0 +1,6 @@
+event_id,event_type,name,start_date,end_date,region,source_name,source_url,notes
+E20250410_SANDSTORM,sandstorm,2025年4月10-14日西北强沙尘暴,2025-04-10,2025-04-14,甘肃河西/宁夏/内蒙古西部/新疆东部,应急管理部,https://www.mem.gov.cn/xw/yjglbgzdt/202505/t20250512_532571.shtml,强沙尘暴与大风复合过程
+E20250123_COLDWAVE,cold_wave,2025年1月23-27日西北寒潮雨雪,2025-01-23,2025-01-27,新疆/西北地区东部/青海/川西高原,中国气象局,https://www.cma.gov.cn/2011xwzx/2011xqxxw/2011xzytq/202501/t20250120_6810814.html,寒潮雨雪大风过程
+E202406_XJ_HEAT,heat_stagnation,2024年夏季新疆持续高温,2024-06-01,2024-08-31,新疆,新疆气象局,https://xj.cma.gov.cn/xwzx/qxyw/202409/t20240914_6583653.html,夏季平均气温与2023年并列1961年以来最高
+E202404_XJ_WIND,strong_wind,2024年4月新疆强风沙过程,2024-04-01,2024-04-30,新疆,新疆气象局,https://xj.cma.gov.cn/xwzx/qxyw/202501/t20250115_6801676.html,强风沙席卷新疆，多站风速刷新同期极值
+E2024_ALTAY_SNOW,blizzard,2024年新疆阿勒泰强降雪,2024-01-01,2024-03-31,新疆阿勒泰,新疆气象局,https://xj.cma.gov.cn/xwzx/qxyw/202501/t20250115_6801676.html,积雪超2米，适合积雪深度分析
