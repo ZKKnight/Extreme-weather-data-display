@@ -9,7 +9,7 @@ from typing import Any
 from .analysis import calculate_indices
 from .db import WeatherDatabase
 from .models import EVENT_TYPES, Event, Location
-from .open_meteo import OpenMeteoClient, expand_date_window, hourly_json_to_rows
+from .open_meteo import OpenMeteoClient, date_chunks, expand_date_window, hourly_json_to_rows
 
 
 DEFAULT_DB = "data/extreme_weather.sqlite"
@@ -92,24 +92,28 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         days_before=args.days_before,
         days_after=args.days_after,
     )
-    client = OpenMeteoClient(timeout_s=args.timeout)
+    client = OpenMeteoClient(timeout_s=args.timeout, max_retries=args.retries)
 
     total = 0
     failures = []
     for location in locations:
-        try:
-            data = client.fetch_hourly(
-                latitude=location["latitude"],
-                longitude=location["longitude"],
-                start_date=start_date,
-                end_date=end_date,
-            )
-            rows = hourly_json_to_rows(data, event["event_id"], location["location_id"])
-            total += database.upsert_weather_rows(rows)
-            print(f"Fetched {len(rows)} rows for {location['location_id']} ({location['name']})")
-        except Exception as exc:
-            failures.append(f"{location['location_id']} ({location['name']}): {exc}")
-            print(f"Failed {location['location_id']} ({location['name']}): {exc}")
+        location_total = 0
+        for chunk_start, chunk_end in date_chunks(start_date, end_date, args.chunk_days):
+            try:
+                data = client.fetch_hourly(
+                    latitude=location["latitude"],
+                    longitude=location["longitude"],
+                    start_date=chunk_start,
+                    end_date=chunk_end,
+                )
+                rows = hourly_json_to_rows(data, event["event_id"], location["location_id"])
+                location_total += database.upsert_weather_rows(rows)
+            except Exception as exc:
+                failure = f"{location['location_id']} ({location['name']}) {chunk_start}..{chunk_end}: {exc}"
+                failures.append(failure)
+                print(f"Failed {failure}")
+        total += location_total
+        print(f"Fetched {location_total} rows for {location['location_id']} ({location['name']})")
     print(f"Saved weather rows: {total}")
     if failures:
         raise SystemExit("Some locations failed:\n" + "\n".join(failures))
@@ -256,6 +260,8 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--days-before", type=int, default=1)
     fetch.add_argument("--days-after", type=int, default=1)
     fetch.add_argument("--timeout", type=int, default=60)
+    fetch.add_argument("--retries", type=int, default=4)
+    fetch.add_argument("--chunk-days", type=int, default=14)
     fetch.set_defaults(func=cmd_fetch)
 
     analyze = sub.add_parser("analyze", help="Calculate derived indices for an event")

@@ -96,6 +96,20 @@ def expand_date_window(start_date: str, end_date: str, days_before: int = 1, day
     return start.isoformat(), end.isoformat()
 
 
+def date_chunks(start_date: str, end_date: str, chunk_days: int = 14) -> list[tuple[str, str]]:
+    if chunk_days < 1:
+        raise ValueError("chunk_days must be >= 1")
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    chunks = []
+    cursor = start
+    while cursor <= end:
+        chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
+        chunks.append((cursor.isoformat(), chunk_end.isoformat()))
+        cursor = chunk_end + timedelta(days=1)
+    return chunks
+
+
 def hourly_json_to_rows(data: dict[str, Any], event_id: str, location_id: str) -> list[dict[str, Any]]:
     hourly = data.get("hourly", {})
     times = hourly.get("time", [])

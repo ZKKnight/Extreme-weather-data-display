@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from .analysis import calculate_indices
 from .db import WeatherDatabase
 from .models import EVENT_TYPES, EVENT_TYPE_LABELS, Event, Location
-from .open_meteo import OpenMeteoClient, expand_date_window, hourly_json_to_rows
+from .open_meteo import OpenMeteoClient, date_chunks, expand_date_window, hourly_json_to_rows
 
 
 DEFAULT_DB = "data/extreme_weather.sqlite"
@@ -510,21 +510,27 @@ class WeatherDashboard:
             raise ValueError(f"No locations for event: {event_id}")
 
         start, end = expand_date_window(event["start_date"], event["end_date"])
-        client = OpenMeteoClient()
+        client = OpenMeteoClient(timeout_s=45, max_retries=4)
         total = 0
         failures = []
         for location in locations:
-            try:
-                data = client.fetch_hourly(
-                    latitude=location["latitude"],
-                    longitude=location["longitude"],
-                    start_date=start,
-                    end_date=end,
-                )
-                rows = hourly_json_to_rows(data, event_id, location["location_id"])
-                total += self.database.upsert_weather_rows(rows)
-            except Exception as exc:
-                failures.append(f"{location['location_id']}（{location['name']}）：{exc}")
+            location_total = 0
+            for chunk_start, chunk_end in date_chunks(start, end, chunk_days=14):
+                try:
+                    data = client.fetch_hourly(
+                        latitude=location["latitude"],
+                        longitude=location["longitude"],
+                        start_date=chunk_start,
+                        end_date=chunk_end,
+                    )
+                    rows = hourly_json_to_rows(data, event_id, location["location_id"])
+                    location_total += self.database.upsert_weather_rows(rows)
+                except Exception as exc:
+                    failures.append(
+                        f"{location['location_id']}（{location['name']}）"
+                        f"{chunk_start}至{chunk_end}：{exc}"
+                    )
+            total += location_total
         if failures:
             raise PartialFetchError(total, failures)
         return total
