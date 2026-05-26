@@ -84,7 +84,7 @@ class WeatherDashboard:
         message: str = "",
         event_type_filter: str | None = None,
     ) -> str:
-        active_filter = event_type_filter if event_type_filter in EVENT_TYPES else ""
+        active_filter = event_type_filter if event_type_filter in EVENT_TYPES else EVENT_TYPES[0]
         events = self.events(active_filter or None)
         selected = self.selected_event(selected_event_id, events)
         selected_id = selected["event_id"] if selected else ""
@@ -152,6 +152,20 @@ class WeatherDashboard:
       padding: 14px;
     }}
     .event-list {{ display: grid; gap: 8px; }}
+    .category-list {{ display: grid; gap: 8px; }}
+    .category-row {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 38px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: inherit;
+      text-decoration: none;
+      background: #fff;
+    }}
+    .category-row.active {{ border-color: var(--accent); background: #edf4ff; color: var(--accent); }}
     .event-row {{
       display: block;
       padding: 10px;
@@ -258,36 +272,36 @@ class WeatherDashboard:
     <aside>
       <div class="stack">
         <div class="panel">
-          <h2>事件清单</h2>
-          {self.render_type_filter(active_filter)}
+          <h2>极端气象类别</h2>
+          {self.render_category_nav(active_filter)}
+        </div>
+        <div class="panel">
+          <h2>{esc(EVENT_TYPE_LABELS[active_filter])}事件</h2>
           <div class="event-list">{self.render_event_list(events, selected_id, active_filter)}</div>
         </div>
         <div class="panel">
-          <h2>新增事件</h2>
-          {self.render_event_form()}
+          <h2>新增{esc(EVENT_TYPE_LABELS[active_filter])}事件</h2>
+          {self.render_event_form(active_filter)}
         </div>
       </div>
     </aside>
     <section>
       {f'<div class="message">{esc(message)}</div>' if message else ''}
-      {self.render_selected_event(selected, locations, indices, counts)}
+      {self.render_selected_event(selected, locations, indices, counts, active_filter)}
     </section>
   </main>
 </body>
 </html>"""
 
-    def render_type_filter(self, active_filter: str) -> str:
-        options = ['<option value="">全部类型</option>']
+    def render_category_nav(self, active_filter: str) -> str:
+        items = []
         for key in EVENT_TYPES:
-            selected = " selected" if key == active_filter else ""
-            options.append(f'<option value="{esc(key)}"{selected}>{esc(EVENT_TYPE_LABELS[key])}</option>')
-        return f"""<form method="get" action="/" style="margin-bottom: 10px;">
-  <label>极端气象类型
-    <select name="type" onchange="this.form.submit()">
-      {''.join(options)}
-    </select>
-  </label>
-</form>"""
+            active = " active" if key == active_filter else ""
+            items.append(
+                f'<a class="category-row{active}" href="/?type={quote(key)}">'
+                f'<strong>{esc(EVENT_TYPE_LABELS[key])}</strong><span>›</span></a>'
+            )
+        return f'<div class="category-list">{"".join(items)}</div>'
 
     def render_event_list(self, events: list[sqlite3.Row], selected_id: str, event_type_filter: str = "") -> str:
         if not events:
@@ -308,13 +322,11 @@ class WeatherDashboard:
             )
         return "\n".join(items)
 
-    def render_event_form(self) -> str:
-        options = "\n".join(
-            f'<option value="{esc(key)}">{esc(EVENT_TYPE_LABELS[key])}</option>' for key in EVENT_TYPES
-        )
+    def render_event_form(self, event_type: str) -> str:
         return f"""<form class="grid" method="post" action="/events/add">
+  <input type="hidden" name="event_type" value="{esc(event_type)}">
   <label>编号<input name="event_id" required placeholder="E20250410_SANDSTORM"></label>
-  <label>类型<select name="event_type">{options}</select></label>
+  <label>类别<input value="{esc(EVENT_TYPE_LABELS[event_type])}" disabled></label>
   <label class="wide">名称<input name="name" required></label>
   <label>开始日期<input type="date" name="start_date" required></label>
   <label>结束日期<input type="date" name="end_date" required></label>
@@ -331,9 +343,16 @@ class WeatherDashboard:
         locations: list[sqlite3.Row],
         indices: list[sqlite3.Row],
         counts: dict[str, int],
+        active_filter: str,
     ) -> str:
         if selected is None:
-            return '<div class="panel"><h2>事件详情</h2><p class="muted">请先新增或导入事件。</p></div>'
+            label = EVENT_TYPE_LABELS.get(active_filter, active_filter)
+            return f"""<div class="stack">
+  <div class="panel">
+    <h2>{esc(label)}工作区</h2>
+    <p class="muted">请先在左侧新增该类别的极端气象事件。新增后可为事件添加点位、拉取 Open-Meteo 历史气象数据并计算指标。</p>
+  </div>
+</div>"""
         label = EVENT_TYPE_LABELS.get(selected["event_type"], selected["event_type"])
         source = (
             f'<a href="{esc(selected["source_url"])}" target="_blank" rel="noreferrer">{esc(selected["source_name"] or "来源")}</a>'
@@ -350,6 +369,7 @@ class WeatherDashboard:
       </div>
       <form method="post" action="/events/delete">
         <input type="hidden" name="event_id" value="{esc(selected['event_id'])}">
+        <input type="hidden" name="event_type" value="{esc(selected['event_type'])}">
         <button class="danger" type="submit">删除事件</button>
       </form>
     </div>
@@ -364,10 +384,12 @@ class WeatherDashboard:
     <div class="actions">
       <form method="post" action="/events/fetch">
         <input type="hidden" name="event_id" value="{esc(selected['event_id'])}">
+        <input type="hidden" name="event_type" value="{esc(selected['event_type'])}">
         <button type="submit">拉取气象数据</button>
       </form>
       <form method="post" action="/events/analyze">
         <input type="hidden" name="event_id" value="{esc(selected['event_id'])}">
+        <input type="hidden" name="event_type" value="{esc(selected['event_type'])}">
         <button class="secondary" type="submit">计算指标</button>
       </form>
       <a class="button" href="/export/indices.csv">导出指标 CSV</a>
@@ -375,7 +397,7 @@ class WeatherDashboard:
   </div>
   <div class="panel">
     <h2>新增点位</h2>
-    {self.render_location_form(selected['event_id'])}
+    {self.render_location_form(selected['event_id'], selected['event_type'])}
   </div>
   <div class="panel">
     <h2>点位列表</h2>
@@ -387,9 +409,10 @@ class WeatherDashboard:
   </div>
 </div>"""
 
-    def render_location_form(self, event_id: str) -> str:
+    def render_location_form(self, event_id: str, event_type: str) -> str:
         return f"""<form class="grid" method="post" action="/locations/add">
   <input type="hidden" name="event_id" value="{esc(event_id)}">
+  <input type="hidden" name="event_type" value="{esc(event_type)}">
   <label>点位编号<input name="location_id" required placeholder="E20250410_JIUQUAN"></label>
   <label>名称<input name="name" required></label>
   <label>省份<input name="province"></label>
@@ -575,22 +598,23 @@ def make_handler(app: WeatherDashboard) -> type[BaseHTTPRequestHandler]:
                 parsed = urlparse(self.path)
                 if parsed.path == "/events/add":
                     event_id = app.add_event(form)
-                    self.redirect(event_id, "事件已保存")
+                    self.redirect(event_id, "事件已保存", optional(form, "event_type"))
                 elif parsed.path == "/events/delete":
                     event_id = required(form, "event_id")
+                    event_type = optional(form, "event_type")
                     app.database.delete_event(event_id)
-                    self.redirect("", "事件已删除")
+                    self.redirect("", "事件已删除", event_type)
                 elif parsed.path == "/locations/add":
                     event_id = app.add_location(form)
-                    self.redirect(event_id, "点位已保存")
+                    self.redirect(event_id, "点位已保存", optional(form, "event_type"))
                 elif parsed.path == "/events/fetch":
                     event_id = required(form, "event_id")
                     total = app.fetch_event(event_id)
-                    self.redirect(event_id, f"气象数据已拉取：{total} 条")
+                    self.redirect(event_id, f"气象数据已拉取：{total} 条", optional(form, "event_type"))
                 elif parsed.path == "/events/analyze":
                     event_id = required(form, "event_id")
                     total = app.analyze_event(event_id)
-                    self.redirect(event_id, f"指标已计算：{total} 项")
+                    self.redirect(event_id, f"指标已计算：{total} 项", optional(form, "event_type"))
                 else:
                     self.send_error(HTTPStatus.NOT_FOUND)
             except Exception as exc:
@@ -601,10 +625,15 @@ def make_handler(app: WeatherDashboard) -> type[BaseHTTPRequestHandler]:
             payload = self.rfile.read(length).decode("utf-8")
             return parse_qs(payload, keep_blank_values=True)
 
-        def redirect(self, event_id: str, message: str) -> None:
+        def redirect(self, event_id: str, message: str, event_type: str = "") -> None:
             target = f"/?message={quote(message)}"
+            params = []
             if event_id:
-                target = f"/?event_id={quote(event_id)}&message={quote(message)}"
+                params.append(f"event_id={quote(event_id)}")
+            if event_type in EVENT_TYPES:
+                params.append(f"type={quote(event_type)}")
+            params.append(f"message={quote(message)}")
+            target = f"/?{'&'.join(params)}"
             self.send_response(HTTPStatus.SEE_OTHER)
             self.send_header("Location", target)
             self.end_headers()
