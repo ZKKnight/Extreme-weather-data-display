@@ -301,6 +301,27 @@ class WeatherDashboard:
       gap: 10px;
       align-items: end;
     }}
+    form.event-form {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+    }}
+    .form-row {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      align-items: end;
+    }}
+    .readonly-field {{
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 9px;
+      background: var(--surface-2);
+      color: #344054;
+    }}
     label {{ display: grid; gap: 5px; color: var(--muted); font-size: 12px; }}
     input, select, textarea {{
       width: 100%;
@@ -372,6 +393,7 @@ class WeatherDashboard:
       main {{ grid-template-columns: 1fr; }}
       aside {{ border-right: 0; border-bottom: 1px solid var(--border); }}
       form.grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .form-row {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -446,19 +468,21 @@ class WeatherDashboard:
   <option value="heat">高温</option>
   <option value="stagnation">静稳</option>
 </select></label>"""
-        return f"""<form class="grid" method="post" action="/events/add">
+        return f"""<form class="event-form" method="post" action="/events/add">
   <input type="hidden" name="event_type" value="{esc(event_type)}">
-  <label>编号<input name="event_id" required placeholder="E20250410_SANDSTORM"></label>
-  <label>类别<input value="{esc(EVENT_TYPE_LABELS[event_type])}" disabled></label>
+  <label>类别<span class="readonly-field">{esc(EVENT_TYPE_LABELS[event_type])}</span></label>
   {subtype_field}
-  <label class="wide">名称<input name="name" required></label>
-  <label>开始日期<input type="date" name="start_date" required></label>
-  <label>结束日期<input type="date" name="end_date" required></label>
-  <label class="wide">区域<input name="region" required></label>
-  <label class="wide">来源名称<input name="source_name"></label>
-  <label class="wide">来源链接<input name="source_url"></label>
-  <label class="full">备注<textarea name="notes"></textarea></label>
-  <button class="full" type="submit">保存事件</button>
+  <label>编号<input name="event_id" required placeholder="E20250410_SANDSTORM"></label>
+  <label>名称<input name="name" required></label>
+  <div class="form-row">
+    <label>开始日期<input type="date" name="start_date" required></label>
+    <label>结束日期<input type="date" name="end_date" required></label>
+  </div>
+  <label>区域<input name="region" required></label>
+  <label>来源名称<input name="source_name"></label>
+  <label>来源链接<input name="source_url"></label>
+  <label>备注<textarea name="notes"></textarea></label>
+  <button type="submit">保存事件</button>
 </form>"""
 
     def render_selected_event(
