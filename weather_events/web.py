@@ -39,6 +39,10 @@ def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 def safe_float(value: Any) -> float | None:
     if value is None:
         return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def event_subtype_label(event: sqlite3.Row | dict[str, Any]) -> str:
@@ -50,10 +54,6 @@ def event_subtype_label(event: sqlite3.Row | dict[str, Any]) -> str:
     if not subtype and event_type == "heat_stagnation":
         subtype = "heat"
     return EVENT_SUBTYPE_LABELS.get(subtype, "")
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 class WeatherDashboard:
