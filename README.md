@@ -24,8 +24,16 @@ python -m weather_events.cli export-indices --out outputs/indices.csv
 
 ## 本地界面
 
+推荐使用一键启动脚本，会先释放端口，再启动服务并自动打开浏览器：
+
 ```powershell
-python -m weather_events.web
+python start_dashboard.py
+```
+
+也可以手动启动：
+
+```powershell
+python scripts/run_web.py
 ```
 
 打开：
