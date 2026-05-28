@@ -154,18 +154,25 @@ class WeatherDashboard:
                 item["temperature_max"] = max(values["temperature_2m"])
                 item["temperature_min"] = min(values["temperature_2m"])
                 item["temperature_mean"] = sum(values["temperature_2m"]) / len(values["temperature_2m"])
+                item["cold_hours_le_0"] = sum(1 for value in values["temperature_2m"] if value <= 0)
+                item["hot_hours_ge_35"] = sum(1 for value in values["temperature_2m"] if value >= 35)
+                item["hot_hours_ge_40"] = sum(1 for value in values["temperature_2m"] if value >= 40)
             if values["wind_speed_10m"]:
                 item["wind_speed_mean"] = sum(values["wind_speed_10m"]) / len(values["wind_speed_10m"])
                 item["stagnant_hours"] = sum(1 for value in values["wind_speed_10m"] if value <= 2)
             if values["wind_gusts_10m"]:
                 item["wind_gust_max"] = max(values["wind_gusts_10m"])
+                item["gust_hours_ge_17_2"] = sum(1 for value in values["wind_gusts_10m"] if value >= 17.2)
+                item["gust_hours_ge_24_5"] = sum(1 for value in values["wind_gusts_10m"] if value >= 24.5)
             if values["shortwave_radiation"]:
                 daylight = [value for value in values["shortwave_radiation"] if value > 0]
                 item["shortwave_mean"] = sum(daylight) / len(daylight) if daylight else 0
+                item["low_radiation_hours"] = sum(1 for value in values["shortwave_radiation"] if value <= 200)
             if values["precipitation"]:
                 item["precipitation_sum"] = sum(values["precipitation"])
             if values["snowfall"]:
                 item["snowfall_sum"] = sum(values["snowfall"])
+                item["snowfall_hours_gt_0"] = sum(1 for value in values["snowfall"] if value > 0)
             if values["snow_depth"]:
                 item["snow_depth_max"] = max(values["snow_depth"])
             if values["relative_humidity_2m"]:
@@ -623,6 +630,7 @@ class WeatherDashboard:
             return '<p class="muted">暂无气象序列。请先点击“拉取气象数据”。</p>'
         configs = self.chart_configs(event_type)
         charts = [self.render_chart(series, **config) for config in configs]
+        charts.extend(self.render_category_feature_charts(series, event_type))
         return f'<div class="chart-grid">{"".join(charts)}</div>'
 
     def chart_configs(self, event_type: str) -> list[dict[str, Any]]:
@@ -719,6 +727,233 @@ class WeatherDashboard:
                 },
             ]
         return [common_temp]
+
+    def render_category_feature_charts(self, series: list[dict[str, Any]], event_type: str) -> list[str]:
+        if event_type == "sandstorm":
+            return [
+                self.render_scatter_chart(
+                    series,
+                    "风速-辐照耦合关系",
+                    "wind_gust_max",
+                    "shortwave_mean",
+                    "最大阵风（米/秒）",
+                    "平均短波辐射（瓦/平方米）",
+                    "#b54708",
+                ),
+                self.render_location_total_bar(
+                    series,
+                    "低辐照小时数对比",
+                    "low_radiation_hours",
+                    "小时",
+                    "#f79009",
+                    "短波辐射不高于200瓦/平方米",
+                ),
+            ]
+        if event_type == "cold_wave":
+            return [
+                self.render_temperature_drop_chart(series),
+                self.render_location_total_bar(series, "低温持续小时数", "cold_hours_le_0", "小时", "#2e90fa", "2米气温不高于0摄氏度"),
+            ]
+        if event_type == "heat_stagnation":
+            return [
+                self.render_stacked_location_bar(
+                    series,
+                    "高温小时构成",
+                    [("hot_hours_ge_35", "35摄氏度及以上", "#f79009"), ("hot_hours_ge_40", "40摄氏度及以上", "#d92d20")],
+                    "小时",
+                ),
+                self.render_location_total_bar(series, "静稳小时数对比", "stagnant_hours", "小时", "#12b76a", "10米平均风速不高于2米/秒"),
+            ]
+        if event_type == "strong_wind":
+            return [
+                self.render_location_max_bar(series, "阵风峰值排名", "wind_gust_max", "米/秒", "#7f56d9", "事件期间日最大阵风的最高值"),
+                self.render_stacked_location_bar(
+                    series,
+                    "大风超限小时数",
+                    [("gust_hours_ge_17_2", "8级及以上", "#f79009"), ("gust_hours_ge_24_5", "10级及以上", "#d92d20")],
+                    "小时",
+                ),
+            ]
+        if event_type == "blizzard":
+            return [
+                self.render_stacked_location_bar(
+                    series,
+                    "降雪与低温持续性",
+                    [("snowfall_hours_gt_0", "降雪小时", "#2e90fa"), ("cold_hours_le_0", "低温小时", "#175cd3")],
+                    "小时",
+                ),
+                self.render_scatter_chart(
+                    series,
+                    "降雪-积雪响应关系",
+                    "snowfall_sum",
+                    "snow_depth_max",
+                    "日降雪量（厘米）",
+                    "最大积雪深度（米）",
+                    "#175cd3",
+                ),
+            ]
+        return []
+
+    def aggregate_by_location(self, series: list[dict[str, Any]], field: str, mode: str = "sum") -> list[dict[str, Any]]:
+        grouped: dict[str, list[float]] = defaultdict(list)
+        for item in series:
+            value = item.get(field)
+            if value is not None:
+                grouped[item["location_name"]].append(float(value))
+        rows = []
+        for location, values in grouped.items():
+            if not values:
+                continue
+            if mode == "max":
+                value = max(values)
+            elif mode == "min":
+                value = min(values)
+            else:
+                value = sum(values)
+            rows.append({"location_name": location, "value": value})
+        return sorted(rows, key=lambda row: row["value"], reverse=True)
+
+    def render_location_total_bar(self, series: list[dict[str, Any]], title: str, field: str, unit: str, color: str, note: str) -> str:
+        return self.render_horizontal_bar_chart(title, self.aggregate_by_location(series, field, "sum"), unit, color, note)
+
+    def render_location_max_bar(self, series: list[dict[str, Any]], title: str, field: str, unit: str, color: str, note: str) -> str:
+        return self.render_horizontal_bar_chart(title, self.aggregate_by_location(series, field, "max"), unit, color, note)
+
+    def render_temperature_drop_chart(self, series: list[dict[str, Any]]) -> str:
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for item in series:
+            if item.get("temperature_mean") is not None and item.get("temperature_min") is not None:
+                grouped[item["location_name"]].append(item)
+        rows = []
+        for location, items in grouped.items():
+            items = sorted(items, key=lambda item: item["day"])
+            start_temp = float(items[0]["temperature_mean"])
+            min_temp = min(float(item["temperature_min"]) for item in items)
+            rows.append({"location_name": location, "value": max(0, start_temp - min_temp)})
+        return self.render_horizontal_bar_chart("过程降温幅度", rows, "摄氏度", "#175cd3", "首日平均气温减过程最低气温")
+
+    def render_horizontal_bar_chart(
+        self,
+        title: str,
+        rows: list[dict[str, Any]],
+        unit: str,
+        color: str,
+        note: str,
+    ) -> str:
+        if not rows:
+            return f'<div class="chart-card"><p class="chart-title">{esc(title)}</p><p class="muted">暂无可绘制数据</p></div>'
+        max_value = max(row["value"] for row in rows) or 1
+        width = 520
+        height = max(190, 44 + len(rows) * 34)
+        left = 92
+        right = 42
+        top = 24
+        bar_h = 18
+        gap = 14
+        plot_w = width - left - right
+        parts = [
+            f'<div class="chart-card"><p class="chart-title">{esc(title)}</p>',
+            f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{esc(title)}">',
+        ]
+        for index, row in enumerate(rows):
+            y = top + index * (bar_h + gap)
+            bar_w = plot_w * row["value"] / max_value
+            parts.append(f'<text class="chart-label" x="4" y="{y + 13}">{esc(row["location_name"])}</text>')
+            parts.append(f'<rect x="{left}" y="{y}" width="{plot_w}" height="{bar_h}" fill="#eef2f6"></rect>')
+            parts.append(f'<rect x="{left}" y="{y}" width="{bar_w:.2f}" height="{bar_h}" fill="{color}" opacity="0.85"></rect>')
+            parts.append(f'<text class="chart-label" x="{left + bar_w + 6:.2f}" y="{y + 13}">{esc(round(row["value"], 1))}</text>')
+        parts.append(f'<text class="chart-label" x="{left}" y="{height - 8}">{esc(note)} · {esc(unit)}</text>')
+        parts.append("</svg></div>")
+        return "".join(parts)
+
+    def render_stacked_location_bar(self, series: list[dict[str, Any]], title: str, fields: list[tuple[str, str, str]], unit: str) -> str:
+        locations = sorted({item["location_name"] for item in series})
+        rows = []
+        for location in locations:
+            values = []
+            for field, label, color in fields:
+                total = sum(float(item.get(field) or 0) for item in series if item["location_name"] == location)
+                values.append((field, label, color, total))
+            rows.append((location, values))
+        max_total = max((sum(value[3] for value in values) for _, values in rows), default=0) or 1
+        width = 520
+        height = max(190, 48 + len(rows) * 34)
+        left = 92
+        top = 24
+        plot_w = width - left - 42
+        bar_h = 18
+        parts = [
+            f'<div class="chart-card"><p class="chart-title">{esc(title)}</p>',
+            f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{esc(title)}">',
+        ]
+        for row_index, (location, values) in enumerate(rows):
+            y = top + row_index * 32
+            x = left
+            parts.append(f'<text class="chart-label" x="4" y="{y + 13}">{esc(location)}</text>')
+            parts.append(f'<rect x="{left}" y="{y}" width="{plot_w}" height="{bar_h}" fill="#eef2f6"></rect>')
+            for _, _, color, value in values:
+                w = plot_w * value / max_total
+                parts.append(f'<rect x="{x:.2f}" y="{y}" width="{w:.2f}" height="{bar_h}" fill="{color}" opacity="0.85"></rect>')
+                x += w
+        parts.append(f'<text class="chart-label" x="{left}" y="{height - 8}">{esc(unit)}</text>')
+        parts.append("</svg>")
+        legend = "".join(
+            f'<span class="legend-item"><span class="legend-swatch" style="background:{color}"></span>{esc(label)}</span>'
+            for _, label, color in fields
+        )
+        parts.append(f'<div class="chart-legend">{legend}</div></div>')
+        return "".join(parts)
+
+    def render_scatter_chart(
+        self,
+        series: list[dict[str, Any]],
+        title: str,
+        x_field: str,
+        y_field: str,
+        x_label: str,
+        y_label: str,
+        color: str,
+    ) -> str:
+        points = [item for item in series if item.get(x_field) is not None and item.get(y_field) is not None]
+        if not points:
+            return f'<div class="chart-card"><p class="chart-title">{esc(title)}</p><p class="muted">暂无可绘制数据</p></div>'
+        width = 520
+        height = 220
+        left = 48
+        right = 18
+        top = 18
+        bottom = 42
+        plot_w = width - left - right
+        plot_h = height - top - bottom
+        xs = [float(item[x_field]) for item in points]
+        ys = [float(item[y_field]) for item in points]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        if min_x == max_x:
+            max_x += 1
+        if min_y == max_y:
+            max_y += 1
+
+        def x_pos(value: float) -> float:
+            return left + (value - min_x) * plot_w / (max_x - min_x)
+
+        def y_pos(value: float) -> float:
+            return top + (max_y - value) * plot_h / (max_y - min_y)
+
+        parts = [
+            f'<div class="chart-card"><p class="chart-title">{esc(title)}</p>',
+            f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{esc(title)}">',
+            f'<line class="chart-axis" x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}"></line>',
+            f'<line class="chart-axis" x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}"></line>',
+        ]
+        for item in points:
+            parts.append(
+                f'<circle cx="{x_pos(float(item[x_field])):.2f}" cy="{y_pos(float(item[y_field])):.2f}" r="3.2" fill="{color}" opacity="0.65"></circle>'
+            )
+        parts.append(f'<text class="chart-label" x="{left}" y="{height - 8}">{esc(x_label)}</text>')
+        parts.append(f'<text class="chart-label" x="{width - 150}" y="12">{esc(y_label)}</text>')
+        parts.append("</svg></div>")
+        return "".join(parts)
 
     def render_chart(
         self,
