@@ -279,6 +279,17 @@ class WeatherDashboard:
     }}
     .event-row.active {{ border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }}
     .event-row strong {{ display: block; line-height: 1.35; }}
+    .event-picker {{
+      display: grid;
+      gap: 10px;
+    }}
+    .event-summary {{
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f9fafb;
+    }}
+    .event-summary strong {{ display: block; line-height: 1.35; }}
     .muted {{ color: var(--muted); font-size: 12px; }}
     .badge {{
       display: inline-flex;
@@ -450,23 +461,38 @@ class WeatherDashboard:
     def render_event_list(self, events: list[sqlite3.Row], selected_id: str, event_type_filter: str = "") -> str:
         if not events:
             return '<p class="muted">暂无事件</p>'
-        items = []
+        options = []
+        selected_event = events[0]
         for event in events:
-            active = " active" if event["event_id"] == selected_id else ""
             label = EVENT_TYPE_LABELS.get(event["event_type"], event["event_type"])
             subtype = event_subtype_label(event)
             label_text = f"{label}/{subtype}" if subtype else label
             href = f"/?event_id={quote(event['event_id'])}"
             if event_type_filter:
                 href += f"&type={quote(event_type_filter)}"
-            items.append(
-                f"""<a class="event-row{active}" href="{href}">
-  <strong>{esc(event['name'])}</strong>
-  <span class="muted">{esc(label_text)} · {esc(event['start_date'])} 至 {esc(event['end_date'])}</span><br>
-  <span class="muted">{esc(event['region'])}</span>
-</a>"""
+            selected_attr = " selected" if event["event_id"] == selected_id else ""
+            if event["event_id"] == selected_id:
+                selected_event = event
+            option_text = f"{event['name']} | {event['start_date']} 至 {event['end_date']}"
+            options.append(f'<option value="{esc(href)}"{selected_attr}>{esc(option_text)}</option>')
+
+        selected_label = EVENT_TYPE_LABELS.get(selected_event["event_type"], selected_event["event_type"])
+        selected_subtype = event_subtype_label(selected_event)
+        selected_label_text = f"{selected_label}/{selected_subtype}" if selected_subtype else selected_label
+        return (
+            '<div class="event-picker">'
+            '<label>选择事件'
+            '<select onchange="if (this.value) window.location.href = this.value">'
+            f'{"".join(options)}'
+            '</select>'
+            '</label>'
+            '<div class="event-summary">'
+            f'<strong>{esc(selected_event["name"])}</strong>'
+            f'<span class="muted">{esc(selected_label_text)} · {esc(selected_event["start_date"])} 至 {esc(selected_event["end_date"])}</span><br>'
+            f'<span class="muted">{esc(selected_event["region"])}</span>'
+            '</div>'
+            '</div>'
             )
-        return "\n".join(items)
 
     def render_event_form(self, event_type: str) -> str:
         subtype_field = ""
