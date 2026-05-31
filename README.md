@@ -15,6 +15,9 @@ Python 初版功能：
 python -m weather_events.cli init
 python -m weather_events.cli import-events examples/events_seed.csv
 python -m weather_events.cli import-locations examples/locations_seed.csv
+# 若需要加载近20年全国范围事件库，可改用：
+python -m weather_events.cli import-events examples/national_events_2006_2025.csv
+python -m weather_events.cli import-locations examples/national_locations_2006_2025.csv
 python -m weather_events.cli fetch --event-id E20250410_SANDSTORM
 python -m weather_events.cli analyze --event-id E20250410_SANDSTORM
 python -m weather_events.cli export-indices --out outputs/indices.csv
