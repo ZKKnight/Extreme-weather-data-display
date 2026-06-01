@@ -13,7 +13,7 @@ EventType = Literal[
     "heavy_rain",
     "freezing_rain",
     "typhoon",
-    "thunderstorm_hail",
+    "hail",
     "fog",
 ]
 
@@ -26,7 +26,7 @@ EVENT_TYPES: tuple[str, ...] = (
     "heavy_rain",
     "freezing_rain",
     "typhoon",
-    "thunderstorm_hail",
+    "hail",
     "fog",
 )
 
@@ -39,7 +39,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "heavy_rain": "强降水/暴雨洪涝",
     "freezing_rain": "冰冻/冻雨/雨凇",
     "typhoon": "台风/热带气旋",
-    "thunderstorm_hail": "雷暴/冰雹",
+    "hail": "冰雹",
     "fog": "大雾/低能见度",
 }
 

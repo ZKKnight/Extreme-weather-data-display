@@ -30,7 +30,8 @@ INDEX_LABELS = {
     "snow_cold_hours_le_0": "降雪低温小时数",
     "freezing_precip_hours": "低温降水小时数",
     "typhoon_gust_hours_ge_24_5ms": "台风强阵风小时数",
-    "thunderstorm_gust_hours_ge_17_2ms": "雷暴大风小时数",
+    "convective_gust_hours_ge_17_2ms": "强对流大风小时数",
+    "hail_proxy_hours": "冰雹环境代理小时数",
     "fog_proxy_hours": "大雾低能见度代理小时数",
     "high_humidity_hours_ge_95": "高湿小时数",
 }
@@ -230,21 +231,28 @@ def calculate_indices(event_type: str, rows: list[dict[str, Any]]) -> dict[str, 
                 "count(precipitation >= 10)",
                 "10 mm/h",
             )
-    elif event_type == "thunderstorm_hail":
+    elif event_type == "hail":
         if gust:
-            indices["thunderstorm_gust_hours_ge_17_2ms"] = (
+            indices["convective_gust_hours_ge_17_2ms"] = (
                 _count_ge(gust, 17.2),
                 "h",
                 "count(wind_gusts_10m >= 17.2)",
                 "8级风",
             )
-            indices["gust_hours_ge_24_5ms"] = (_count_ge(gust, 24.5), "h", "count(wind_gusts_10m >= 24.5)", "10级风")
-        if precipitation:
-            indices["heavy_rain_hours_ge_20"] = (
-                _count_ge(precipitation, 20),
+        if gust and precipitation:
+            hail_proxy_hours = sum(
+                1
+                for row in rows
+                if row.get("wind_gusts_10m") is not None
+                and row.get("precipitation") is not None
+                and float(row["wind_gusts_10m"]) >= 17.2
+                and float(row["precipitation"]) >= 10
+            )
+            indices["hail_proxy_hours"] = (
+                hail_proxy_hours,
                 "h",
-                "count(precipitation >= 20)",
-                "20 mm/h",
+                "count(wind_gusts_10m >= 17.2)",
+                "强阵风叠加强降水",
             )
     elif event_type == "fog":
         if humidity:

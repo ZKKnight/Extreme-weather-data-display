@@ -830,14 +830,14 @@ class WeatherDashboard:
                     "color": "#1570ef",
                 },
             ]
-        if event_type == "thunderstorm_hail":
+        if event_type == "hail":
             return [
                 {
                     "title": "最大阵风风速变化",
                     "field": "wind_gust_max",
                     "unit": "米/秒",
                     "mode": "line",
-                    "color": "#d92d20",
+                    "color": "#b42318",
                     "threshold": 17.2,
                     "threshold_label": "8级风",
                 },
@@ -846,9 +846,9 @@ class WeatherDashboard:
                     "field": "precipitation_max_hourly",
                     "unit": "毫米",
                     "mode": "bar",
-                    "color": "#7f56d9",
-                    "threshold": 20,
-                    "threshold_label": "短时强降水",
+                    "color": "#475467",
+                    "threshold": 10,
+                    "threshold_label": "强降水",
                 },
             ]
         if event_type == "fog":
@@ -982,21 +982,21 @@ class WeatherDashboard:
                     "小时",
                 ),
             ]
-        if event_type == "thunderstorm_hail":
+        if event_type == "hail":
             return [
                 self.render_scatter_chart(
                     series,
-                    "雷暴风雨复合关系",
+                    "冰雹风雨环境关系",
                     "wind_gust_max",
                     "precipitation_max_hourly",
                     "最大阵风（米/秒）",
                     "最大小时降水量（毫米）",
-                    "#d92d20",
+                    "#b42318",
                 ),
                 self.render_stacked_location_bar(
                     series,
-                    "雷暴风雨超限小时数",
-                    [("gust_hours_ge_17_2", "8级风及以上", "#f79009"), ("heavy_rain_hours_ge_20", "20毫米/小时及以上", "#7f56d9")],
+                    "冰雹伴随强风强降水小时数",
+                    [("gust_hours_ge_17_2", "8级风及以上", "#b42318"), ("heavy_rain_hours_ge_10", "10毫米/小时及以上", "#475467")],
                     "小时",
                 ),
             ]

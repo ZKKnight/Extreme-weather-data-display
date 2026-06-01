@@ -33,7 +33,10 @@ class WeatherDatabase:
     def _migrate_event_type_check(self, conn: sqlite3.Connection) -> None:
         row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'events'").fetchone()
         table_sql = row["sql"] if row else ""
-        if all(f"'{event_type}'" in table_sql for event_type in EVENT_TYPES):
+        removed_types = ("thunderstorm_hail", "thunderstorm")
+        if all(f"'{event_type}'" in table_sql for event_type in EVENT_TYPES) and not any(
+            f"'{event_type}'" in table_sql for event_type in removed_types
+        ):
             return
 
         conn.execute("PRAGMA foreign_keys = OFF")
@@ -45,7 +48,7 @@ class WeatherDatabase:
                     event_type TEXT NOT NULL CHECK (
                         event_type IN (
                             'sandstorm', 'cold_wave', 'heat_stagnation', 'strong_wind', 'blizzard',
-                            'heavy_rain', 'freezing_rain', 'typhoon', 'thunderstorm_hail', 'fog'
+                            'heavy_rain', 'freezing_rain', 'typhoon', 'hail', 'fog'
                         )
                     ),
                     event_subtype TEXT DEFAULT '',
@@ -68,14 +71,20 @@ class WeatherDatabase:
                     source_name, source_url, notes, created_at, updated_at
                 )
                 SELECT
-                    event_id, event_type, COALESCE(event_subtype, ''), name, start_date, end_date, region,
+                    event_id,
+                    CASE WHEN event_type = 'thunderstorm_hail' THEN 'hail' ELSE event_type END,
+                    COALESCE(event_subtype, ''), name, start_date, end_date, region,
                     COALESCE(source_name, ''), COALESCE(source_url, ''), COALESCE(notes, ''),
                     created_at, updated_at
                 FROM events
+                WHERE event_type <> 'thunderstorm'
                 """
             )
             conn.execute("DROP TABLE events")
             conn.execute("ALTER TABLE events_new RENAME TO events")
+            conn.execute("DELETE FROM weather_timeseries WHERE event_id NOT IN (SELECT event_id FROM events)")
+            conn.execute("DELETE FROM derived_indices WHERE event_id NOT IN (SELECT event_id FROM events)")
+            conn.execute("DELETE FROM locations WHERE event_id NOT IN (SELECT event_id FROM events)")
         finally:
             conn.execute("PRAGMA foreign_keys = ON")
 
