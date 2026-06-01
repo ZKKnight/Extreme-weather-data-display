@@ -4,7 +4,16 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-EventType = Literal["sandstorm", "cold_wave", "heat_stagnation", "strong_wind", "blizzard"]
+EventType = Literal[
+    "sandstorm",
+    "cold_wave",
+    "heat_stagnation",
+    "strong_wind",
+    "blizzard",
+    "heavy_rain",
+    "freezing_rain",
+    "typhoon",
+]
 
 EVENT_TYPES: tuple[str, ...] = (
     "sandstorm",
@@ -12,6 +21,9 @@ EVENT_TYPES: tuple[str, ...] = (
     "heat_stagnation",
     "strong_wind",
     "blizzard",
+    "heavy_rain",
+    "freezing_rain",
+    "typhoon",
 )
 
 EVENT_TYPE_LABELS: dict[str, str] = {
@@ -20,6 +32,9 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "heat_stagnation": "高温及静稳",
     "strong_wind": "强风",
     "blizzard": "暴雪",
+    "heavy_rain": "强降水/暴雨洪涝",
+    "freezing_rain": "冰冻/冻雨/雨凇",
+    "typhoon": "台风/热带气旋",
 }
 
 EVENT_SUBTYPE_LABELS: dict[str, str] = {

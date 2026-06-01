@@ -4,7 +4,10 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS events (
     event_id TEXT PRIMARY KEY,
     event_type TEXT NOT NULL CHECK (
-        event_type IN ('sandstorm', 'cold_wave', 'heat_stagnation', 'strong_wind', 'blizzard')
+        event_type IN (
+            'sandstorm', 'cold_wave', 'heat_stagnation', 'strong_wind', 'blizzard',
+            'heavy_rain', 'freezing_rain', 'typhoon'
+        )
     ),
     event_subtype TEXT DEFAULT '',
     name TEXT NOT NULL,

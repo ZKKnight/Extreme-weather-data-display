@@ -12,6 +12,9 @@ INDEX_LABELS = {
     "wind_speed_max_10m": "10米最大平均风速",
     "wind_speed_max_100m": "100米最大平均风速",
     "precipitation_sum": "累计降水量",
+    "precipitation_max_hourly": "最大小时降水量",
+    "heavy_rain_hours_ge_10": "10毫米及以上强降水小时数",
+    "heavy_rain_hours_ge_20": "20毫米及以上短时强降水小时数",
     "snowfall_sum": "累计降雪量",
     "snow_depth_max": "最大积雪深度",
     "shortwave_radiation_mean": "平均短波辐射",
@@ -25,6 +28,8 @@ INDEX_LABELS = {
     "gust_hours_ge_24_5ms": "10级及以上阵风小时数",
     "snowfall_hours_gt_0": "降雪小时数",
     "snow_cold_hours_le_0": "降雪低温小时数",
+    "freezing_precip_hours": "低温降水小时数",
+    "typhoon_gust_hours_ge_24_5ms": "台风强阵风小时数",
 }
 
 METHOD_LABELS = {
@@ -36,6 +41,9 @@ METHOD_LABELS = {
     "max(wind_speed_10m)": "取10米平均风速最大值",
     "max(wind_speed_100m)": "取100米平均风速最大值",
     "sum(precipitation)": "逐小时降水量求和",
+    "max(precipitation)": "取逐小时降水量最大值",
+    "count(precipitation >= 10)": "统计逐小时降水量不低于10毫米的小时数",
+    "count(precipitation >= 20)": "统计逐小时降水量不低于20毫米的小时数",
     "sum(snowfall)": "逐小时降雪量求和",
     "max(snow_depth)": "取积雪深度最大值",
     "mean(shortwave_radiation)": "逐小时短波辐射求平均",
@@ -48,12 +56,15 @@ METHOD_LABELS = {
     "count(wind_speed_10m <= 2)": "统计10米平均风速不高于2米/秒的小时数",
     "count(wind_gusts_10m >= 24.5)": "统计10米阵风风速不低于24.5米/秒的小时数",
     "count(snowfall > 0)": "统计降雪量大于0的小时数",
+    "count(temperature_2m <= 1 and precipitation > 0)": "统计2米气温不高于1摄氏度且有降水的小时数",
 }
 
 THRESHOLD_LABELS = {
     "0 degC": "0摄氏度",
     "35 degC": "35摄氏度",
     "40 degC": "40摄氏度",
+    "10 mm/h": "10毫米/小时",
+    "20 mm/h": "20毫米/小时",
 }
 
 UNIT_LABELS = {
@@ -125,6 +136,7 @@ def calculate_indices(event_type: str, rows: list[dict[str, Any]]) -> dict[str, 
         indices["wind_speed_max_100m"] = (max(wind100), "m/s", "max(wind_speed_100m)", "近似风机轮毂高度")
     if precipitation:
         indices["precipitation_sum"] = (sum(precipitation), "mm", "sum(precipitation)", "")
+        indices["precipitation_max_hourly"] = (max(precipitation), "mm", "max(precipitation)", "")
     if snowfall:
         indices["snowfall_sum"] = (sum(snowfall), "cm", "sum(snowfall)", "")
     if snow_depth:
@@ -166,5 +178,52 @@ def calculate_indices(event_type: str, rows: list[dict[str, Any]]) -> dict[str, 
             indices["snowfall_hours_gt_0"] = (_count_ge(snowfall, 0.01), "h", "count(snowfall > 0)", "")
         if temp:
             indices["snow_cold_hours_le_0"] = (_count_le(temp, 0), "h", "count(temperature_2m <= 0)", "0 degC")
+    elif event_type == "heavy_rain":
+        if precipitation:
+            indices["heavy_rain_hours_ge_10"] = (
+                _count_ge(precipitation, 10),
+                "h",
+                "count(precipitation >= 10)",
+                "10 mm/h",
+            )
+            indices["heavy_rain_hours_ge_20"] = (
+                _count_ge(precipitation, 20),
+                "h",
+                "count(precipitation >= 20)",
+                "20 mm/h",
+            )
+    elif event_type == "freezing_rain":
+        if temp:
+            indices["cold_hours_le_0"] = (_count_le(temp, 0), "h", "count(temperature_2m <= 0)", "0 degC")
+        if temp and precipitation:
+            freezing_hours = sum(
+                1
+                for row in rows
+                if row.get("temperature_2m") is not None
+                and row.get("precipitation") is not None
+                and float(row["temperature_2m"]) <= 1
+                and float(row["precipitation"]) > 0
+            )
+            indices["freezing_precip_hours"] = (
+                freezing_hours,
+                "h",
+                "count(temperature_2m <= 1 and precipitation > 0)",
+                "0-1摄氏度降水",
+            )
+    elif event_type == "typhoon":
+        if gust:
+            indices["typhoon_gust_hours_ge_24_5ms"] = (
+                _count_ge(gust, 24.5),
+                "h",
+                "count(wind_gusts_10m >= 24.5)",
+                "10级风",
+            )
+        if precipitation:
+            indices["heavy_rain_hours_ge_10"] = (
+                _count_ge(precipitation, 10),
+                "h",
+                "count(precipitation >= 10)",
+                "10 mm/h",
+            )
 
     return indices

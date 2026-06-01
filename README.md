@@ -54,6 +54,9 @@ http://127.0.0.1:8000
 | `heat_stagnation` | 高温及静稳 |
 | `strong_wind` | 强风 |
 | `blizzard` | 暴雪 |
+| `heavy_rain` | 强降水/暴雨洪涝 |
+| `freezing_rain` | 冰冻/冻雨/雨凇 |
+| `typhoon` | 台风/热带气旋 |
 
 ## 数据库表
 

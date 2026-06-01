@@ -170,6 +170,12 @@ class WeatherDashboard:
                 item["low_radiation_hours"] = sum(1 for value in values["shortwave_radiation"] if value <= 200)
             if values["precipitation"]:
                 item["precipitation_sum"] = sum(values["precipitation"])
+                item["precipitation_max_hourly"] = max(values["precipitation"])
+                item["heavy_rain_hours_ge_10"] = sum(1 for value in values["precipitation"] if value >= 10)
+                item["heavy_rain_hours_ge_20"] = sum(1 for value in values["precipitation"] if value >= 20)
+                if values["temperature_2m"]:
+                    paired = zip(values["temperature_2m"], values["precipitation"])
+                    item["freezing_precip_hours"] = sum(1 for temp, rain in paired if temp <= 1 and rain > 0)
             if values["snowfall"]:
                 item["snowfall_sum"] = sum(values["snowfall"])
                 item["snowfall_hours_gt_0"] = sum(1 for value in values["snowfall"] if value > 0)
@@ -752,6 +758,65 @@ class WeatherDashboard:
                     "color": "#175cd3",
                 },
             ]
+        if event_type == "heavy_rain":
+            return [
+                {
+                    "title": "日累计降水量变化",
+                    "field": "precipitation_sum",
+                    "unit": "毫米",
+                    "mode": "bar",
+                    "color": "#1570ef",
+                    "threshold": 50,
+                    "threshold_label": "暴雨量级",
+                },
+                {
+                    "title": "最大小时降水量变化",
+                    "field": "precipitation_max_hourly",
+                    "unit": "毫米",
+                    "mode": "line",
+                    "color": "#0e9384",
+                    "threshold": 20,
+                    "threshold_label": "短时强降水",
+                },
+            ]
+        if event_type == "freezing_rain":
+            return [
+                {
+                    "title": "日最低气温变化",
+                    "field": "temperature_min",
+                    "unit": "摄氏度",
+                    "mode": "line",
+                    "color": "#175cd3",
+                    "threshold": 0,
+                    "threshold_label": "0摄氏度",
+                },
+                {
+                    "title": "低温降水小时数变化",
+                    "field": "freezing_precip_hours",
+                    "unit": "小时",
+                    "mode": "bar",
+                    "color": "#2e90fa",
+                },
+            ]
+        if event_type == "typhoon":
+            return [
+                {
+                    "title": "最大阵风风速变化",
+                    "field": "wind_gust_max",
+                    "unit": "米/秒",
+                    "mode": "line",
+                    "color": "#7f56d9",
+                    "threshold": 24.5,
+                    "threshold_label": "10级风",
+                },
+                {
+                    "title": "日累计降水量变化",
+                    "field": "precipitation_sum",
+                    "unit": "毫米",
+                    "mode": "bar",
+                    "color": "#1570ef",
+                },
+            ]
         return [common_temp]
 
     def render_category_feature_charts(self, series: list[dict[str, Any]], event_type: str) -> list[str]:
@@ -816,6 +881,52 @@ class WeatherDashboard:
                     "日降雪量（厘米）",
                     "最大积雪深度（米）",
                     "#175cd3",
+                ),
+            ]
+        if event_type == "heavy_rain":
+            return [
+                self.render_location_total_bar(series, "过程累计降水量对比", "precipitation_sum", "毫米", "#1570ef", "事件窗口逐小时降水量合计"),
+                self.render_stacked_location_bar(
+                    series,
+                    "短时强降水小时数",
+                    [("heavy_rain_hours_ge_10", "10毫米/小时及以上", "#2e90fa"), ("heavy_rain_hours_ge_20", "20毫米/小时及以上", "#1849a9")],
+                    "小时",
+                ),
+            ]
+        if event_type == "freezing_rain":
+            return [
+                self.render_stacked_location_bar(
+                    series,
+                    "低温与降水叠加小时数",
+                    [("cold_hours_le_0", "0摄氏度及以下", "#175cd3"), ("freezing_precip_hours", "低温降水", "#2e90fa")],
+                    "小时",
+                ),
+                self.render_scatter_chart(
+                    series,
+                    "气温-降水叠加关系",
+                    "temperature_min",
+                    "precipitation_sum",
+                    "日最低气温（摄氏度）",
+                    "日累计降水量（毫米）",
+                    "#175cd3",
+                ),
+            ]
+        if event_type == "typhoon":
+            return [
+                self.render_scatter_chart(
+                    series,
+                    "风雨复合强度关系",
+                    "wind_gust_max",
+                    "precipitation_sum",
+                    "最大阵风（米/秒）",
+                    "日累计降水量（毫米）",
+                    "#7f56d9",
+                ),
+                self.render_stacked_location_bar(
+                    series,
+                    "台风风雨超限小时数",
+                    [("gust_hours_ge_24_5", "10级风及以上", "#7f56d9"), ("heavy_rain_hours_ge_10", "10毫米/小时及以上", "#1570ef")],
+                    "小时",
                 ),
             ]
         return []

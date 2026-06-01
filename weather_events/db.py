@@ -28,6 +28,56 @@ class WeatherDatabase:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(events)").fetchall()}
         if "event_subtype" not in columns:
             conn.execute("ALTER TABLE events ADD COLUMN event_subtype TEXT DEFAULT ''")
+        self._migrate_event_type_check(conn)
+
+    def _migrate_event_type_check(self, conn: sqlite3.Connection) -> None:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'events'").fetchone()
+        table_sql = row["sql"] if row else ""
+        if all(f"'{event_type}'" in table_sql for event_type in EVENT_TYPES):
+            return
+
+        conn.execute("PRAGMA foreign_keys = OFF")
+        try:
+            conn.execute(
+                """
+                CREATE TABLE events_new (
+                    event_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL CHECK (
+                        event_type IN (
+                            'sandstorm', 'cold_wave', 'heat_stagnation', 'strong_wind', 'blizzard',
+                            'heavy_rain', 'freezing_rain', 'typhoon'
+                        )
+                    ),
+                    event_subtype TEXT DEFAULT '',
+                    name TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    region TEXT NOT NULL,
+                    source_name TEXT DEFAULT '',
+                    source_url TEXT DEFAULT '',
+                    notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO events_new (
+                    event_id, event_type, event_subtype, name, start_date, end_date, region,
+                    source_name, source_url, notes, created_at, updated_at
+                )
+                SELECT
+                    event_id, event_type, COALESCE(event_subtype, ''), name, start_date, end_date, region,
+                    COALESCE(source_name, ''), COALESCE(source_url, ''), COALESCE(notes, ''),
+                    created_at, updated_at
+                FROM events
+                """
+            )
+            conn.execute("DROP TABLE events")
+            conn.execute("ALTER TABLE events_new RENAME TO events")
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
 
     def add_event(self, event: Event) -> None:
         if event.event_type not in EVENT_TYPES:
