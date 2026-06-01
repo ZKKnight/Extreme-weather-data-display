@@ -121,6 +121,8 @@ class WeatherDashboard:
                     w.precipitation,
                     w.snowfall,
                     w.snow_depth,
+                    w.et0_fao_evapotranspiration,
+                    w.soil_moisture_0_to_7cm,
                     w.relative_humidity_2m
                 FROM weather_timeseries w
                 JOIN locations l ON l.location_id = w.location_id
@@ -141,6 +143,8 @@ class WeatherDashboard:
                 "precipitation",
                 "snowfall",
                 "snow_depth",
+                "et0_fao_evapotranspiration",
+                "soil_moisture_0_to_7cm",
                 "relative_humidity_2m",
             ):
                 value = safe_float(row[field])
@@ -195,6 +199,24 @@ class WeatherDashboard:
                         values["shortwave_radiation"],
                     )
                     if humidity >= 95 and wind <= 2 and radiation <= 100
+                )
+            if values["soil_moisture_0_to_7cm"]:
+                item["soil_moisture_min"] = min(values["soil_moisture_0_to_7cm"])
+                item["soil_moisture_mean"] = sum(values["soil_moisture_0_to_7cm"]) / len(values["soil_moisture_0_to_7cm"])
+            if values["et0_fao_evapotranspiration"]:
+                item["et0_sum"] = sum(values["et0_fao_evapotranspiration"])
+            if values["precipitation"]:
+                item["dry_hours_precip_eq_0"] = sum(1 for value in values["precipitation"] if value == 0)
+            if values["temperature_2m"] and values["relative_humidity_2m"] and values["wind_speed_10m"] and values["precipitation"]:
+                item["fire_weather_proxy_hours"] = sum(
+                    1
+                    for temp, humidity, wind, rain in zip(
+                        values["temperature_2m"],
+                        values["relative_humidity_2m"],
+                        values["wind_speed_10m"],
+                        values["precipitation"],
+                    )
+                    if temp >= 30 and humidity <= 30 and wind >= 5 and rain == 0
                 )
             series.append(item)
         return sorted(series, key=lambda item: (item["location_name"], item["day"]))
@@ -870,6 +892,42 @@ class WeatherDashboard:
                     "color": "#667085",
                 },
             ]
+        if event_type == "wildfire_weather":
+            return [
+                {
+                    "title": "高火险天气代理小时数",
+                    "field": "fire_weather_proxy_hours",
+                    "unit": "小时",
+                    "mode": "bar",
+                    "color": "#d92d20",
+                },
+                {
+                    "title": "最低相对湿度变化",
+                    "field": "humidity_min",
+                    "unit": "%",
+                    "mode": "line",
+                    "color": "#b54708",
+                    "threshold": 30,
+                    "threshold_label": "低湿",
+                },
+            ]
+        if event_type == "drought":
+            return [
+                {
+                    "title": "日累计降水量变化",
+                    "field": "precipitation_sum",
+                    "unit": "毫米",
+                    "mode": "bar",
+                    "color": "#1570ef",
+                },
+                {
+                    "title": "浅层土壤湿度最低值变化",
+                    "field": "soil_moisture_min",
+                    "unit": "",
+                    "mode": "line",
+                    "color": "#7a5c00",
+                },
+            ]
         return [common_temp]
 
     def render_category_feature_charts(self, series: list[dict[str, Any]], event_type: str) -> list[str]:
@@ -1011,6 +1069,32 @@ class WeatherDashboard:
                     "10米平均风速（米/秒）",
                     "平均相对湿度（%）",
                     "#667085",
+                ),
+            ]
+        if event_type == "wildfire_weather":
+            return [
+                self.render_location_total_bar(series, "高火险天气代理小时数对比", "fire_weather_proxy_hours", "小时", "#d92d20", "高温低湿有风且无降水"),
+                self.render_scatter_chart(
+                    series,
+                    "低湿-风速火险关系",
+                    "wind_speed_mean",
+                    "humidity_min",
+                    "10米平均风速（米/秒）",
+                    "最低相对湿度（%）",
+                    "#b54708",
+                ),
+            ]
+        if event_type == "drought":
+            return [
+                self.render_location_total_bar(series, "无降水小时数对比", "dry_hours_precip_eq_0", "小时", "#7a5c00", "事件窗口内逐小时无降水"),
+                self.render_scatter_chart(
+                    series,
+                    "蒸散-土壤湿度关系",
+                    "et0_sum",
+                    "soil_moisture_min",
+                    "参考蒸散累计值（毫米）",
+                    "浅层土壤湿度最低值",
+                    "#7a5c00",
                 ),
             ]
         return []

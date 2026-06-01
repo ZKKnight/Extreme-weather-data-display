@@ -34,6 +34,11 @@ INDEX_LABELS = {
     "hail_proxy_hours": "冰雹环境代理小时数",
     "fog_proxy_hours": "大雾低能见度代理小时数",
     "high_humidity_hours_ge_95": "高湿小时数",
+    "soil_moisture_min": "浅层土壤湿度最低值",
+    "et0_sum": "参考蒸散累计值",
+    "dry_hours_precip_eq_0": "无降水小时数",
+    "fire_weather_proxy_hours": "高火险天气代理小时数",
+    "low_humidity_hours_le_30": "低湿小时数",
 }
 
 METHOD_LABELS = {
@@ -63,6 +68,11 @@ METHOD_LABELS = {
     "count(temperature_2m <= 1 and precipitation > 0)": "统计2米气温不高于1摄氏度且有降水的小时数",
     "count(relative_humidity_2m >= 95 and wind_speed_10m <= 2 and shortwave_radiation <= 100)": "统计高湿、低风速、低辐照共同出现的小时数",
     "count(relative_humidity_2m >= 95)": "统计2米相对湿度不低于95%的小时数",
+    "min(soil_moisture_0_to_7cm)": "取0至7厘米浅层土壤湿度最小值",
+    "sum(et0_fao_evapotranspiration)": "逐小时参考蒸散量求和",
+    "count(precipitation == 0)": "统计无降水小时数",
+    "count(temperature_2m >= 30 and relative_humidity_2m <= 30 and wind_speed_10m >= 5 and precipitation == 0)": "统计高温、低湿、较大风、无降水共同出现的小时数",
+    "count(relative_humidity_2m <= 30)": "统计相对湿度不高于30%的小时数",
 }
 
 THRESHOLD_LABELS = {
@@ -80,6 +90,7 @@ UNIT_LABELS = {
     "cm": "厘米",
     "m": "米",
     "W/m2": "瓦/平方米",
+    "mm/h": "毫米/小时",
     "h": "小时",
     "%": "%",
 }
@@ -126,6 +137,8 @@ def calculate_indices(event_type: str, rows: list[dict[str, Any]]) -> dict[str, 
     snowfall = _values(rows, "snowfall")
     snow_depth = _values(rows, "snow_depth")
     humidity = _values(rows, "relative_humidity_2m")
+    soil_moisture = _values(rows, "soil_moisture_0_to_7cm")
+    et0 = _values(rows, "et0_fao_evapotranspiration")
 
     indices: dict[str, tuple[Any, str, str, str]] = {}
 
@@ -149,6 +162,10 @@ def calculate_indices(event_type: str, rows: list[dict[str, Any]]) -> dict[str, 
         indices["snow_depth_max"] = (max(snow_depth), "m", "max(snow_depth)", "")
     if radiation:
         indices["shortwave_radiation_mean"] = (mean(radiation), "W/m2", "mean(shortwave_radiation)", "")
+    if soil_moisture:
+        indices["soil_moisture_min"] = (min(soil_moisture), "", "min(soil_moisture_0_to_7cm)", "")
+    if et0:
+        indices["et0_sum"] = (sum(et0), "mm", "sum(et0_fao_evapotranspiration)", "")
 
     if event_type == "sandstorm":
         if humidity:
@@ -279,5 +296,49 @@ def calculate_indices(event_type: str, rows: list[dict[str, Any]]) -> dict[str, 
                 "count(relative_humidity_2m >= 95 and wind_speed_10m <= 2 and shortwave_radiation <= 100)",
                 "高湿低风速低辐照",
             )
+    elif event_type == "wildfire_weather":
+        if humidity:
+            indices["low_humidity_hours_le_30"] = (
+                _count_le(humidity, 30),
+                "h",
+                "count(relative_humidity_2m <= 30)",
+                "30%",
+            )
+        if precipitation:
+            indices["dry_hours_precip_eq_0"] = (
+                sum(1 for value in precipitation if value == 0),
+                "h",
+                "count(precipitation == 0)",
+                "无降水",
+            )
+        if temp and humidity and wind10 and precipitation:
+            fire_hours = sum(
+                1
+                for row in rows
+                if row.get("temperature_2m") is not None
+                and row.get("relative_humidity_2m") is not None
+                and row.get("wind_speed_10m") is not None
+                and row.get("precipitation") is not None
+                and float(row["temperature_2m"]) >= 30
+                and float(row["relative_humidity_2m"]) <= 30
+                and float(row["wind_speed_10m"]) >= 5
+                and float(row["precipitation"]) == 0
+            )
+            indices["fire_weather_proxy_hours"] = (
+                fire_hours,
+                "h",
+                "count(temperature_2m >= 30 and relative_humidity_2m <= 30 and wind_speed_10m >= 5 and precipitation == 0)",
+                "高温低湿有风无雨",
+            )
+    elif event_type == "drought":
+        if precipitation:
+            indices["dry_hours_precip_eq_0"] = (
+                sum(1 for value in precipitation if value == 0),
+                "h",
+                "count(precipitation == 0)",
+                "无降水",
+            )
+        if temp:
+            indices["hot_hours_ge_35"] = (_count_ge(temp, 35), "h", "count(temperature_2m >= 35)", "35 degC")
 
     return indices
