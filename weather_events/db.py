@@ -45,7 +45,7 @@ class WeatherDatabase:
                     event_type TEXT NOT NULL CHECK (
                         event_type IN (
                             'sandstorm', 'cold_wave', 'heat_stagnation', 'strong_wind', 'blizzard',
-                            'heavy_rain', 'freezing_rain', 'typhoon'
+                            'heavy_rain', 'freezing_rain', 'typhoon', 'thunderstorm_hail', 'fog'
                         )
                     ),
                     event_subtype TEXT DEFAULT '',

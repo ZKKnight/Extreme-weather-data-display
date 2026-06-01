@@ -30,6 +30,9 @@ INDEX_LABELS = {
     "snow_cold_hours_le_0": "降雪低温小时数",
     "freezing_precip_hours": "低温降水小时数",
     "typhoon_gust_hours_ge_24_5ms": "台风强阵风小时数",
+    "thunderstorm_gust_hours_ge_17_2ms": "雷暴大风小时数",
+    "fog_proxy_hours": "大雾低能见度代理小时数",
+    "high_humidity_hours_ge_95": "高湿小时数",
 }
 
 METHOD_LABELS = {
@@ -57,6 +60,8 @@ METHOD_LABELS = {
     "count(wind_gusts_10m >= 24.5)": "统计10米阵风风速不低于24.5米/秒的小时数",
     "count(snowfall > 0)": "统计降雪量大于0的小时数",
     "count(temperature_2m <= 1 and precipitation > 0)": "统计2米气温不高于1摄氏度且有降水的小时数",
+    "count(relative_humidity_2m >= 95 and wind_speed_10m <= 2 and shortwave_radiation <= 100)": "统计高湿、低风速、低辐照共同出现的小时数",
+    "count(relative_humidity_2m >= 95)": "统计2米相对湿度不低于95%的小时数",
 }
 
 THRESHOLD_LABELS = {
@@ -224,6 +229,47 @@ def calculate_indices(event_type: str, rows: list[dict[str, Any]]) -> dict[str, 
                 "h",
                 "count(precipitation >= 10)",
                 "10 mm/h",
+            )
+    elif event_type == "thunderstorm_hail":
+        if gust:
+            indices["thunderstorm_gust_hours_ge_17_2ms"] = (
+                _count_ge(gust, 17.2),
+                "h",
+                "count(wind_gusts_10m >= 17.2)",
+                "8级风",
+            )
+            indices["gust_hours_ge_24_5ms"] = (_count_ge(gust, 24.5), "h", "count(wind_gusts_10m >= 24.5)", "10级风")
+        if precipitation:
+            indices["heavy_rain_hours_ge_20"] = (
+                _count_ge(precipitation, 20),
+                "h",
+                "count(precipitation >= 20)",
+                "20 mm/h",
+            )
+    elif event_type == "fog":
+        if humidity:
+            indices["high_humidity_hours_ge_95"] = (
+                _count_ge(humidity, 95),
+                "h",
+                "count(relative_humidity_2m >= 95)",
+                "95%",
+            )
+        if humidity and wind10 and radiation:
+            fog_hours = sum(
+                1
+                for row in rows
+                if row.get("relative_humidity_2m") is not None
+                and row.get("wind_speed_10m") is not None
+                and row.get("shortwave_radiation") is not None
+                and float(row["relative_humidity_2m"]) >= 95
+                and float(row["wind_speed_10m"]) <= 2
+                and float(row["shortwave_radiation"]) <= 100
+            )
+            indices["fog_proxy_hours"] = (
+                fog_hours,
+                "h",
+                "count(relative_humidity_2m >= 95 and wind_speed_10m <= 2 and shortwave_radiation <= 100)",
+                "高湿低风速低辐照",
             )
 
     return indices
