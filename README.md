@@ -56,9 +56,7 @@ http://127.0.0.1:8000
 | `blizzard` | 暴雪 |
 | `heavy_rain` | 强降水/暴雨洪涝 |
 | `freezing_rain` | 冰冻/冻雨/雨凇 |
-| `typhoon` | 台风/热带气旋 |
 | `hail` | 冰雹 |
-| `fog` | 大雾/低能见度 |
 | `wildfire_weather` | 森林草原火险/高火险天气 |
 | `drought` | 干旱 |
 

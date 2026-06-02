@@ -33,7 +33,7 @@ class WeatherDatabase:
     def _migrate_event_type_check(self, conn: sqlite3.Connection) -> None:
         row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'events'").fetchone()
         table_sql = row["sql"] if row else ""
-        removed_types = ("thunderstorm_hail", "thunderstorm")
+        removed_types = ("thunderstorm_hail", "thunderstorm", "typhoon", "fog")
         if all(f"'{event_type}'" in table_sql for event_type in EVENT_TYPES) and not any(
             f"'{event_type}'" in table_sql for event_type in removed_types
         ):
@@ -48,7 +48,7 @@ class WeatherDatabase:
                     event_type TEXT NOT NULL CHECK (
                         event_type IN (
                             'sandstorm', 'cold_wave', 'heat_stagnation', 'strong_wind', 'blizzard',
-                            'heavy_rain', 'freezing_rain', 'typhoon', 'hail', 'fog',
+                            'heavy_rain', 'freezing_rain', 'hail',
                             'wildfire_weather', 'drought'
                         )
                     ),
@@ -78,7 +78,7 @@ class WeatherDatabase:
                     COALESCE(source_name, ''), COALESCE(source_url, ''), COALESCE(notes, ''),
                     created_at, updated_at
                 FROM events
-                WHERE event_type <> 'thunderstorm'
+                WHERE event_type NOT IN ('thunderstorm', 'typhoon', 'fog')
                 """
             )
             conn.execute("DROP TABLE events")

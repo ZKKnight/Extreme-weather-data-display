@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS events (
     event_type TEXT NOT NULL CHECK (
         event_type IN (
             'sandstorm', 'cold_wave', 'heat_stagnation', 'strong_wind', 'blizzard',
-            'heavy_rain', 'freezing_rain', 'typhoon', 'hail', 'fog',
+            'heavy_rain', 'freezing_rain', 'hail',
             'wildfire_weather', 'drought'
         )
     ),

@@ -190,16 +190,6 @@ class WeatherDashboard:
                 item["humidity_max"] = max(values["relative_humidity_2m"])
                 item["humidity_mean"] = sum(values["relative_humidity_2m"]) / len(values["relative_humidity_2m"])
                 item["high_humidity_hours_ge_95"] = sum(1 for value in values["relative_humidity_2m"] if value >= 95)
-            if values["relative_humidity_2m"] and values["wind_speed_10m"] and values["shortwave_radiation"]:
-                item["fog_proxy_hours"] = sum(
-                    1
-                    for humidity, wind, radiation in zip(
-                        values["relative_humidity_2m"],
-                        values["wind_speed_10m"],
-                        values["shortwave_radiation"],
-                    )
-                    if humidity >= 95 and wind <= 2 and radiation <= 100
-                )
             if values["soil_moisture_0_to_7cm"]:
                 item["soil_moisture_min"] = min(values["soil_moisture_0_to_7cm"])
                 item["soil_moisture_mean"] = sum(values["soil_moisture_0_to_7cm"]) / len(values["soil_moisture_0_to_7cm"])
@@ -833,25 +823,6 @@ class WeatherDashboard:
                     "color": "#2e90fa",
                 },
             ]
-        if event_type == "typhoon":
-            return [
-                {
-                    "title": "最大阵风风速变化",
-                    "field": "wind_gust_max",
-                    "unit": "米/秒",
-                    "mode": "line",
-                    "color": "#7f56d9",
-                    "threshold": 24.5,
-                    "threshold_label": "10级风",
-                },
-                {
-                    "title": "日累计降水量变化",
-                    "field": "precipitation_sum",
-                    "unit": "毫米",
-                    "mode": "bar",
-                    "color": "#1570ef",
-                },
-            ]
         if event_type == "hail":
             return [
                 {
@@ -871,25 +842,6 @@ class WeatherDashboard:
                     "color": "#475467",
                     "threshold": 10,
                     "threshold_label": "强降水",
-                },
-            ]
-        if event_type == "fog":
-            return [
-                {
-                    "title": "平均相对湿度变化",
-                    "field": "humidity_mean",
-                    "unit": "%",
-                    "mode": "line",
-                    "color": "#0e9384",
-                    "threshold": 95,
-                    "threshold_label": "高湿",
-                },
-                {
-                    "title": "大雾低能见度代理小时数",
-                    "field": "fog_proxy_hours",
-                    "unit": "小时",
-                    "mode": "bar",
-                    "color": "#667085",
                 },
             ]
         if event_type == "wildfire_weather":
@@ -1022,24 +974,6 @@ class WeatherDashboard:
                     "#175cd3",
                 ),
             ]
-        if event_type == "typhoon":
-            return [
-                self.render_scatter_chart(
-                    series,
-                    "风雨复合强度关系",
-                    "wind_gust_max",
-                    "precipitation_sum",
-                    "最大阵风（米/秒）",
-                    "日累计降水量（毫米）",
-                    "#7f56d9",
-                ),
-                self.render_stacked_location_bar(
-                    series,
-                    "台风风雨超限小时数",
-                    [("gust_hours_ge_24_5", "10级风及以上", "#7f56d9"), ("heavy_rain_hours_ge_10", "10毫米/小时及以上", "#1570ef")],
-                    "小时",
-                ),
-            ]
         if event_type == "hail":
             return [
                 self.render_scatter_chart(
@@ -1056,19 +990,6 @@ class WeatherDashboard:
                     "冰雹伴随强风强降水小时数",
                     [("gust_hours_ge_17_2", "8级风及以上", "#b42318"), ("heavy_rain_hours_ge_10", "10毫米/小时及以上", "#475467")],
                     "小时",
-                ),
-            ]
-        if event_type == "fog":
-            return [
-                self.render_location_total_bar(series, "高湿小时数对比", "high_humidity_hours_ge_95", "小时", "#0e9384", "相对湿度不低于95%"),
-                self.render_scatter_chart(
-                    series,
-                    "高湿-低风速静稳关系",
-                    "wind_speed_mean",
-                    "humidity_mean",
-                    "10米平均风速（米/秒）",
-                    "平均相对湿度（%）",
-                    "#667085",
                 ),
             ]
         if event_type == "wildfire_weather":
