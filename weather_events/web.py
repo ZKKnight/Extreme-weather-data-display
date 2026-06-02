@@ -313,6 +313,65 @@ class WeatherDashboard:
     .event-picker {{
       display: grid;
       gap: 10px;
+      position: relative;
+    }}
+    .event-dropdown {{
+      position: relative;
+    }}
+    .event-dropdown summary {{
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 30px 7px 9px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      list-style: none;
+    }}
+    .event-dropdown summary::-webkit-details-marker {{ display: none; }}
+    .event-dropdown summary::after {{
+      content: "⌄";
+      position: absolute;
+      right: 10px;
+      top: 7px;
+      color: var(--muted);
+    }}
+    .event-dropdown[open] summary {{
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.12);
+    }}
+    .event-dropdown-list {{
+      position: absolute;
+      z-index: 20;
+      left: 0;
+      right: 0;
+      top: calc(100% + 3px);
+      max-height: 170px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      box-shadow: 0 8px 22px rgba(16, 24, 40, 0.14);
+    }}
+    .event-option {{
+      display: block;
+      padding: 7px 9px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 13px;
+      line-height: 1.35;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .event-option:hover,
+    .event-option.active {{
+      background: #edf4ff;
+      color: var(--accent);
     }}
     .event-summary {{
       padding: 10px;
@@ -501,21 +560,23 @@ class WeatherDashboard:
             href = f"/?event_id={quote(event['event_id'])}"
             if event_type_filter:
                 href += f"&type={quote(event_type_filter)}"
-            selected_attr = " selected" if event["event_id"] == selected_id else ""
+            active = " active" if event["event_id"] == selected_id else ""
             if event["event_id"] == selected_id:
                 selected_event = event
             option_text = f"{event['name']} | {event['start_date']} 至 {event['end_date']}"
-            options.append(f'<option value="{esc(href)}"{selected_attr}>{esc(option_text)}</option>')
+            options.append(f'<a class="event-option{active}" href="{esc(href)}">{esc(option_text)}</a>')
 
         selected_label = EVENT_TYPE_LABELS.get(selected_event["event_type"], selected_event["event_type"])
         selected_subtype = event_subtype_label(selected_event)
         selected_label_text = f"{selected_label}/{selected_subtype}" if selected_subtype else selected_label
+        selected_option_text = f"{selected_event['name']} | {selected_event['start_date']} 至 {selected_event['end_date']}"
         return (
             '<div class="event-picker">'
             '<label>选择事件'
-            '<select onchange="if (this.value) window.location.href = this.value">'
-            f'{"".join(options)}'
-            '</select>'
+            '<details class="event-dropdown">'
+            f'<summary>{esc(selected_option_text)}</summary>'
+            f'<div class="event-dropdown-list">{"".join(options)}</div>'
+            '</details>'
             '</label>'
             '<div class="event-summary">'
             f'<strong>{esc(selected_event["name"])}</strong>'
