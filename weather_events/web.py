@@ -270,34 +270,47 @@ class WeatherDashboard:
       grid-template-columns: 330px minmax(0, 1fr);
       min-height: calc(100vh - 58px);
     }}
+    main > * {{ min-width: 0; }}
     aside {{
       border-right: 1px solid var(--border);
       background: var(--surface);
       padding: 16px;
-      overflow: auto;
+      min-width: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
     }}
-    section {{ padding: 18px 22px; }}
-    .stack {{ display: grid; gap: 14px; }}
+    section {{ min-width: 0; padding: 18px 22px; }}
+    .stack {{ display: grid; gap: 14px; min-width: 0; }}
     .panel {{
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 14px;
+      min-width: 0;
     }}
-    .event-list {{ display: grid; gap: 8px; }}
-    .category-list {{ display: grid; gap: 8px; }}
+    .event-list {{ display: grid; gap: 8px; min-width: 0; }}
+    .category-list {{ display: grid; gap: 8px; min-width: 0; }}
     .category-row {{
       display: flex;
       align-items: center;
       justify-content: space-between;
       min-height: 38px;
+      min-width: 0;
       padding: 8px 10px;
       border: 1px solid var(--border);
       border-radius: 8px;
       color: inherit;
       text-decoration: none;
       background: #fff;
+      overflow: hidden;
     }}
+    .category-row strong {{
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }}
+    .category-row span {{ flex: 0 0 auto; }}
     .category-row.active {{ border-color: var(--accent); background: #edf4ff; color: var(--accent); }}
     .event-row {{
       display: block;
@@ -314,11 +327,17 @@ class WeatherDashboard:
       display: grid;
       gap: 10px;
       position: relative;
+      min-width: 0;
     }}
     .event-dropdown {{
       position: relative;
+      min-width: 0;
+      max-width: 100%;
     }}
     .event-dropdown summary {{
+      display: block;
+      width: 100%;
+      max-width: 100%;
       min-height: 34px;
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -326,6 +345,7 @@ class WeatherDashboard:
       background: #fff;
       color: var(--text);
       font: inherit;
+      box-sizing: border-box;
       cursor: pointer;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -350,8 +370,10 @@ class WeatherDashboard:
       left: 0;
       right: 0;
       top: calc(100% + 3px);
+      max-width: 100%;
       max-height: 170px;
       overflow-y: auto;
+      overflow-x: hidden;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: #fff;
@@ -378,8 +400,14 @@ class WeatherDashboard:
       border: 1px solid var(--border);
       border-radius: 8px;
       background: #f9fafb;
+      min-width: 0;
+      overflow: hidden;
     }}
     .event-summary strong {{ display: block; line-height: 1.35; }}
+    .event-summary strong,
+    .event-summary .muted {{
+      overflow-wrap: anywhere;
+    }}
     .muted {{ color: var(--muted); font-size: 12px; }}
     .badge {{
       display: inline-flex;
@@ -422,6 +450,7 @@ class WeatherDashboard:
     }}
     .readonly-field {{
       min-height: 34px;
+      min-width: 0;
       display: flex;
       align-items: center;
       border: 1px solid var(--border);
@@ -433,6 +462,7 @@ class WeatherDashboard:
     label {{ display: grid; gap: 5px; color: var(--muted); font-size: 12px; }}
     input, select, textarea {{
       width: 100%;
+      min-width: 0;
       min-height: 34px;
       border: 1px solid var(--border);
       border-radius: 6px;
