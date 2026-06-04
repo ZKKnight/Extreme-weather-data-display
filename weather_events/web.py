@@ -880,7 +880,7 @@ class WeatherDashboard:
                     "title": "日累计降水量变化",
                     "field": "precipitation_sum",
                     "unit": "毫米",
-                    "mode": "bar",
+                    "mode": "line",
                     "color": "#1570ef",
                     "threshold": 50,
                     "threshold_label": "暴雨量级",
@@ -1333,13 +1333,19 @@ class WeatherDashboard:
             parts.append(f'<line x1="{left}" y1="{y:.2f}" x2="{left + plot_w}" y2="{y:.2f}" stroke="#d92d20" stroke-dasharray="5 4"></line>')
             parts.append(f'<text class="chart-label" x="{left + plot_w - 52}" y="{y - 4:.2f}" fill="#d92d20">{esc(threshold_label)}</text>')
 
-        for index, location in enumerate(locations[:6]):
+        plotted_locations = locations[:6]
+        for index, location in enumerate(plotted_locations):
             loc_series = [item for item in series if item["location_name"] == location and item.get(field) is not None]
             loc_color = palette[index % len(palette)]
             if mode == "bar":
-                bar_w = max(2, plot_w / max(1, len(days) * len(locations[:6])) * 0.7)
+                day_slot_w = plot_w / max(1, len(days))
+                cluster_w = day_slot_w * 0.62
+                bar_w = max(1.5, min(8.0, cluster_w / max(1, len(plotted_locations))))
+                cluster_total_w = bar_w * len(plotted_locations)
                 for item in loc_series:
-                    x = x_pos(item["day"]) + (index - (len(locations[:6]) - 1) / 2) * bar_w
+                    day_index = days.index(item["day"])
+                    day_center = left + day_slot_w * day_index + day_slot_w / 2
+                    x = day_center - cluster_total_w / 2 + index * bar_w
                     y = y_pos(float(item[field]))
                     parts.append(
                         f'<rect x="{x:.2f}" y="{y:.2f}" width="{bar_w:.2f}" height="{top + plot_h - y:.2f}" fill="{loc_color}" opacity="0.75"></rect>'
@@ -1356,7 +1362,7 @@ class WeatherDashboard:
         parts.append("</svg>")
         legend = "".join(
             f'<span class="legend-item"><span class="legend-swatch" style="background:{palette[index % len(palette)]}"></span>{esc(location)}</span>'
-            for index, location in enumerate(locations[:6])
+            for index, location in enumerate(plotted_locations)
         )
         parts.append(f'<div class="chart-legend">{legend}</div></div>')
         return "".join(parts)
